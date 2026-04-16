@@ -1,4 +1,0 @@
-<Solution>
-  <Project Path="CityCare.Core/CityCare.Core.csproj" />
-  <Project Path="CityCare.Tests/CityCare.Tests.csproj" />
-</Solution>

@@ -6,4 +6,8 @@
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\CityCare.Core\CityCare.Core.csproj" />
+    </ItemGroup>
+
 </Project>
