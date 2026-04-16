@@ -1,6 +1,0 @@
-@CampusConnect.Api_HostAddress = http://localhost:5219
-
-GET {{CampusConnect.Api_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
