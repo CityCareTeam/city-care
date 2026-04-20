@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
@@ -11,28 +12,44 @@ public sealed class GeocodeService
     {
         _httpClient = httpClient;
 
-        // Nominatim exige un User-Agent.
+        // Nominatim exige un User-Agent (valeur "réelle", pas un UA vide).
         if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
         {
-            _httpClient.DefaultRequestHeaders.UserAgent.Add(
-                new ProductInfoHeaderValue("CityCarePlus", "1.0"));
+            _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("CityCarePlus", "1.0"));
         }
 
         if (!_httpClient.DefaultRequestHeaders.Accept.Any(h => h.MediaType == "application/json"))
         {
             _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         }
+
+        if (!_httpClient.DefaultRequestHeaders.AcceptLanguage.Any())
+        {
+            _httpClient.DefaultRequestHeaders.AcceptLanguage.Add(new StringWithQualityHeaderValue("fr-FR"));
+            _httpClient.DefaultRequestHeaders.AcceptLanguage.Add(new StringWithQualityHeaderValue("fr", 0.9));
+            _httpClient.DefaultRequestHeaders.AcceptLanguage.Add(new StringWithQualityHeaderValue("en", 0.8));
+        }
     }
 
     public async Task<ReverseGeocodeResult?> ReverseGeocodeAsync(decimal lat, decimal lng, CancellationToken cancellationToken = default)
     {
-        var url = $"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=json";
+        // Forcer le point décimal (.) quoi qu’il arrive.
+        var latStr = lat.ToString(CultureInfo.InvariantCulture);
+        var lngStr = lng.ToString(CultureInfo.InvariantCulture);
+
+        var url =
+            $"https://nominatim.openstreetmap.org/reverse?lat={latStr}&lon={lngStr}&format=json&zoom=18&addressdetails=1";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         using var response = await _httpClient.SendAsync(request, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
+        {
+            // Nominatim renvoie souvent une explication dans le body (texte ou json).
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            // On retourne null => le controller fera 404, mais au moins tu verras l’erreur en debug en mettant un breakpoint ici.
             return null;
+        }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
@@ -75,3 +92,4 @@ public sealed record ReverseGeocodeResult(
     string? City,
     string? Postcode,
     string? Country);
+            

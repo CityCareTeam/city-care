@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using CityCare.Api.Models.DTOs;
 using CityCare.Api.Services;
 using CityCare.Core.Entities;
@@ -37,7 +38,13 @@ public sealed class IncidentsController : ControllerBase
         if (!_incidentService.IsValidTransition(currentStatus, nextStatus))
             return UnprocessableEntity(new { error = "Transition de statut invalide." });
 
-        var changedByUserId = Guid.Parse(User.FindFirst("sub")!.Value);
+        var userIdValue =
+            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+            User.FindFirstValue("sub");
+
+        if (!Guid.TryParse(userIdValue, out var changedByUserId))
+            return Unauthorized(new { error = "Missing or invalid user id claim." });
+
         var now = DateTime.UtcNow;
 
         incident.Status = nextStatus;

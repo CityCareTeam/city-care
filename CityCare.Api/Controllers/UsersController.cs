@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using CityCare.Api.Services;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -21,7 +22,12 @@ public sealed class UsersController : ControllerBase
     [HttpGet("me/incidents")]
     public async Task<IActionResult> GetMyIncidents(CancellationToken cancellationToken)
     {
-        var userId = Guid.Parse(User.FindFirst("sub")!.Value);
+        var userIdValue =
+            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+            User.FindFirstValue("sub");
+
+        if (!Guid.TryParse(userIdValue, out var userId))
+            return Unauthorized(new { error = "Missing or invalid user id claim." });
 
         var incidents = await _db.Incidents
             .AsNoTracking()
