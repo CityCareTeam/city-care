@@ -1,3 +1,4 @@
+using CityCare.Api.Services;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,6 +12,10 @@ builder.Services.AddDbContext<CityCareDbContext>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IncidentService>();
+builder.Services.AddScoped<GeocodeService>();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -20,5 +25,6 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthorization();
 app.MapControllers();
 app.Run();
