@@ -43,6 +43,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidIssuer = "http://localhost:8080/realms/CityCare",
             NameClaimType = "preferred_username"
+            RoleClaimType = ClaimTypes.Role
         };
 
         // Mapping des rôles (Keycloak)
