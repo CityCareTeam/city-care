@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 #Config local de docker
 docker-compose.override.yml
+
+#Config local appsetings.json
+appsettings.Development.json

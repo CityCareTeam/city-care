@@ -1,10 +1,11 @@
-using System.Security.Claims;
-using CityCare.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using CityCare.Api.Endpoints.Auth;
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using CityCare.Api.Services;
+using CityCare.Api.Endpoints.Auth;
+using CityCare.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 
 // Désactiver le mapping automatique des claims JWT
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
@@ -23,21 +24,29 @@ builder.Services.AddDbContext<CityCareDbContext>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Services métier
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<IncidentService>();
+builder.Services.AddScoped<GeocodeService>();
+
+// Authentification
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.Authority = "http://localhost:8080/realms/CityCare";
         options.RequireHttpsMetadata = false;
 
-        options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+        options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
             ValidateAudience = false,
             ValidateLifetime = true,
             ValidIssuer = "http://localhost:8080/realms/CityCare",
-            NameClaimType = "preferred_username"
+            NameClaimType = "preferred_username",
+            RoleClaimType = ClaimTypes.Role
         };
 
+        // Mapping des rôles (Keycloak)
         options.Events = new JwtBearerEvents
         {
             OnTokenValidated = context =>
@@ -47,8 +56,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     var roles = context.Principal
                         .FindAll("roles")
                         .Select(c => c.Value)
-                        .Distinct()
-                        .ToList();
+                        .Distinct();
 
                     foreach (var role in roles)
                     {
@@ -71,12 +79,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseHttpsRedirection();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.UseHttpsRedirection();
-
+// Endpoints custom
 app.MapAuthEndpoints();
 
 app.MapControllers();
+
 app.Run();

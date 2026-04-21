@@ -11,6 +11,7 @@ public class CityCareDbContext : DbContext
 
     public DbSet<User> Users => Set<User>();
     public DbSet<Incident> Incidents => Set<Incident>();
+    public DbSet<IncidentStatusHistory> IncidentStatusHistories => Set<IncidentStatusHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -63,6 +64,33 @@ public class CityCareDbContext : DbContext
             entity.HasIndex(i => i.Status);
             entity.HasIndex(i => i.AuthorUserId);
             entity.HasIndex(i => new { i.Latitude, i.Longitude });
+        });
+
+        modelBuilder.Entity<IncidentStatusHistory>(entity =>
+        {
+            entity.ToTable("incident_status_history");
+
+            entity.HasKey(h => h.Id);
+
+            entity.Property(h => h.Comment)
+                .HasMaxLength(1000);
+
+            entity.Property(h => h.ChangedAt)
+                .IsRequired();
+
+            entity.HasOne(h => h.Incident)
+                .WithMany()
+                .HasForeignKey(h => h.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(h => h.ChangedByUser)
+                .WithMany()
+                .HasForeignKey(h => h.ChangedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(h => h.IncidentId);
+            entity.HasIndex(h => h.ChangedByUserId);
+            entity.HasIndex(h => h.ChangedAt);
         });
     }
 }
