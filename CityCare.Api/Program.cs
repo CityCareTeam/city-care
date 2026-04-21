@@ -29,6 +29,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<GeocodeService>();
+builder.Services.AddScoped<KeycloakService>();
 
 // Authentification
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
