@@ -1,26 +1,24 @@
 ﻿using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using CityCare.Api.Dtos.Auth;
 using CityCare.Core.Enums;
 
-namespace CityCare.Api.Endpoints.Auth;
+namespace CityCare.Api.Controllers.Auth;
 
-
-
-
-public static class AuthEndpoint {
-    
-    public static void MapAuthEndpoints(this WebApplication app)
+[ApiController]
+[Route("auth")]
+[Authorize]
+public class AuthController : ControllerBase
+{
+    [HttpGet("me")]
+    [ProducesResponseType(typeof(AuthMeResponseDTO), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public ActionResult<AuthMeResponseDTO> GetMe()
     {
-        app.MapGet("/auth/me", GetMe)
-            .RequireAuthorization();
-    }
-
-    public static IResult GetMe(ClaimsPrincipal user)
-    {
-        // Utiliser ClaimTypes pour les claims mappés automatiquement
-        var sub = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var email = user.FindFirst(ClaimTypes.Email)?.Value;
-        var username = user.FindFirst("preferred_username")?.Value;
+        var sub = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var email = User.FindFirst(ClaimTypes.Email)?.Value;
+        var username = User.FindFirst("preferred_username")?.Value;
 
         var ignoredRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -30,8 +28,8 @@ public static class AuthEndpoint {
         };
 
         // Lire les rôles depuis le claim "roles" et ClaimTypes.Role
-        var roles = user.FindAll("roles")
-            .Concat(user.FindAll(ClaimTypes.Role))
+        var roles = User.FindAll("roles")
+            .Concat(User.FindAll(ClaimTypes.Role))
             .Select(c => c.Value)
             .Where(r => !string.IsNullOrWhiteSpace(r))
             .Where(r => !ignoredRoles.Contains(r))
@@ -48,7 +46,7 @@ public static class AuthEndpoint {
             MainRole: mainRole
         );
 
-        return Results.Ok(response);
+        return Ok(response);
     }
 
     private static UserRole? ResolveMainRole(IEnumerable<string> roles)
@@ -69,3 +67,4 @@ public static class AuthEndpoint {
         return null;
     }
 }
+
