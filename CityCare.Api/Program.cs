@@ -1,7 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using CityCare.Api.Services;
-using CityCare.Api.Endpoints.Auth;
+using CityCare.Api.Controllers.Auth;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -84,8 +84,6 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Endpoints custom
-app.MapAuthEndpoints();
 
 app.MapControllers();
 
