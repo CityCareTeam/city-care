@@ -42,7 +42,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = false,
             ValidateLifetime = true,
             ValidIssuer = "http://localhost:8080/realms/CityCare",
-            NameClaimType = "preferred_username"
+            NameClaimType = "preferred_username",
             RoleClaimType = ClaimTypes.Role
         };
 
