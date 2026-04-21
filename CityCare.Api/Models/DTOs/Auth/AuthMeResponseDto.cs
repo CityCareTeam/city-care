@@ -2,7 +2,7 @@
 
 namespace CityCare.Api.Dtos.Auth;
 
-public sealed record AuthMeResponseDTO(
+public sealed record AuthMeResponseDto(
     string? Sub, // UUID from Keycloak
     string? Email,
     string? Username,
