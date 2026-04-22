@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using CityCare.Api.Services;
 using CityCare.Api.Controllers.Auth;
@@ -8,7 +9,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
-// Désactiver le mapping automatique des claims JWT
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,19 +25,16 @@ builder.Services.AddDbContext<CityCareDbContext>(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Services métier
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<GeocodeService>();
 builder.Services.AddScoped<KeycloakService>();
 
-// Authentification
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.Authority = "http://localhost:8080/realms/CityCare";
         options.RequireHttpsMetadata = false;
-
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -48,23 +45,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             RoleClaimType = ClaimTypes.Role
         };
 
-        // Mapping des rôles (Keycloak)
         options.Events = new JwtBearerEvents
         {
             OnTokenValidated = context =>
             {
-                if (context.Principal?.Identity is ClaimsIdentity identity)
-                {
-                    var roles = context.Principal
-                        .FindAll("roles")
-                        .Select(c => c.Value)
-                        .Distinct();
+                if (context.Principal?.Identity is not ClaimsIdentity identity)
+                    return Task.CompletedTask;
 
-                    foreach (var role in roles)
-                    {
-                        identity.AddClaim(new Claim(ClaimTypes.Role, role));
-                    }
-                }
+                // Lire realm_access.roles depuis le JWT Keycloak
+                var realmAccess = context.Principal.FindFirst("realm_access")?.Value;
+                if (realmAccess == null) return Task.CompletedTask;
+
+                var roles = JsonDocument.Parse(realmAccess)
+                    .RootElement
+                    .GetProperty("roles")
+                    .EnumerateArray()
+                    .Select(r => r.GetString()!)
+                    .Distinct();
+
+                foreach (var role in roles)
+                    identity.AddClaim(new Claim(ClaimTypes.Role, role));
 
                 return Task.CompletedTask;
             }
@@ -82,11 +82,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
-
 app.MapControllers();
 
 app.Run();
