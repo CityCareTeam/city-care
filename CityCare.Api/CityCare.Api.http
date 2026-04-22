@@ -1,6 +1,49 @@
-@CityCare.Api_HostAddress = http://localhost:5158
+@host = http://localhost:5158
+@token = eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJiNF9ydUdZeE4wMzVhVEVqaThBSjNOQ3NScmRZUVJfUklQN2g5TC1NTlFzIn0
+@incidentId = 123
 
-GET {{CityCare.Api_HostAddress}}/weatherforecast/
+### Récupérer le Token depuis Keycloak
+POST http://localhost:8080/realms/CityCare/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&
+client_id=web-client&
+username=citycare
+password=citycare
+scope=openid
+
+### Test Santé / Weatherforecast
+GET {{host}}/weatherforecast/
 Accept: application/json
 
-###
+### Endpoint Profil
+GET {{host}}/auth/me
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### Créer un signalement
+POST {{host}}/incidents
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "title": "Nouveau signalement",
+  "description": "Description du problème",
+  "latitude": 45.7640,
+  "longitude": 4.8357
+}
+
+### Lister avec filtres + pagination 
+GET {{host}}/incidents?page=1&pageSize=10&status=open
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Détail complet d'un incident
+GET {{host}}/incidents/{{incidentId}}
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### Aperçu léger pour popup
+GET {{host}}/incidents/{{incidentId}}/preview
+Accept: application/json
+Authorization: Bearer {{token}}
