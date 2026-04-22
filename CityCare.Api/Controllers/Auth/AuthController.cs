@@ -64,6 +64,9 @@ public class AuthController : ControllerBase
         var sub = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         var email = User.FindFirst(ClaimTypes.Email)?.Value;
         var username = User.FindFirst("preferred_username")?.Value;
+        var firstName = User.FindFirst(ClaimTypes.GivenName)?.Value;
+        var lastName = User.FindFirst(ClaimTypes.Surname)?.Value;
+
 
         var ignoredRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -80,13 +83,16 @@ public class AuthController : ControllerBase
             .Where(r => !ignoredRoles.Contains(r))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-
+        
+        
         var mainRole = ResolveMainRole(roles);
 
         var response = new AuthMeResponseDto(
             Sub: sub,
             Email: email,
             Username: username,
+            FirstName : firstName,
+            LastName : lastName,
             Roles: roles,
             MainRole: mainRole
         );
