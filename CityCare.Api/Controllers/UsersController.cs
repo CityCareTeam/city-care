@@ -1,4 +1,4 @@
-using System.Security.Claims;
+using CityCare.Api.Dtos.Users;
 using CityCare.Api.Services;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -13,25 +13,45 @@ namespace CityCare.Api.Controllers;
 public sealed class UsersController : ControllerBase
 {
     private readonly CityCareDbContext _db;
+    private readonly CurrentUserService _currentUser;
 
-    public UsersController(CityCareDbContext db)
+    public UsersController(CityCareDbContext db, CurrentUserService currentUser)
     {
         _db = db;
+        _currentUser = currentUser;
+    }
+
+    [HttpGet("me")]
+    [ProducesResponseType(typeof(UserMeResponseDTO), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetMe(CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var dto = new UserMeResponseDTO(
+            user.Id,
+            user.KeycloakId,
+            user.Email,
+            user.DisplayName,
+            user.Role,
+            user.CreatedAt,
+            user.UpdatedAt);
+
+        return Ok(dto);
     }
 
     [HttpGet("me/incidents")]
     public async Task<IActionResult> GetMyIncidents(CancellationToken cancellationToken)
     {
-        var userIdValue =
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
-
-        if (!Guid.TryParse(userIdValue, out var userId))
-            return Unauthorized(new { error = "Missing or invalid user id claim." });
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
         var incidents = await _db.Incidents
             .AsNoTracking()
-            .Where(i => i.AuthorUserId == userId)
+            .Where(i => i.AuthorUserId == user.Id)
             .OrderByDescending(i => i.CreatedAt)
             .Select(i => new
             {

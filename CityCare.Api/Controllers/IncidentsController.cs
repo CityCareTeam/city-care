@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using CityCare.Api.Models.DTOs;
 using CityCare.Api.Services;
 using CityCare.Core.Entities;
@@ -16,11 +15,13 @@ public sealed class IncidentsController : ControllerBase
 {
     private readonly CityCareDbContext _db;
     private readonly IncidentService _incidentService;
+    private readonly CurrentUserService _currentUser;
 
-    public IncidentsController(CityCareDbContext db, IncidentService incidentService)
+    public IncidentsController(CityCareDbContext db, IncidentService incidentService, CurrentUserService currentUser)
     {
         _db = db;
         _incidentService = incidentService;
+        _currentUser = currentUser;
     }
 
     [HttpPatch("{id:guid}/status")]
@@ -38,12 +39,11 @@ public sealed class IncidentsController : ControllerBase
         if (!_incidentService.IsValidTransition(currentStatus, nextStatus))
             return UnprocessableEntity(new { error = "Transition de statut invalide." });
 
-        var userIdValue =
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
-        if (!Guid.TryParse(userIdValue, out var changedByUserId))
-            return Unauthorized(new { error = "Missing or invalid user id claim." });
+        var changedByUserId = actor.Id;
 
         var now = DateTime.UtcNow;
 
