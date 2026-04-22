@@ -9,16 +9,19 @@ namespace CityCare.Api.Controllers.Auth;
 
 [ApiController]
 [Route("auth")]
-[Authorize]
 public class AuthController : ControllerBase
 {
     private readonly KeycloakService _keycloakService;
     private readonly ILogger<AuthController> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _configuration;
 
-    public AuthController(KeycloakService keycloakService, ILogger<AuthController> logger)
+    public AuthController(KeycloakService keycloakService, ILogger<AuthController> logger, IHttpClientFactory httpClientFactory, IConfiguration configuration)
     {
         _keycloakService = keycloakService;
         _logger = logger;
+        _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
     }
 
     [HttpPost("register")]
@@ -55,8 +58,65 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Erreur lors de la création de l'utilisateur", error = ex.Message });
         }
     }
+    
+    [AllowAnonymous]
+    [HttpPost("login")]
+    [ProducesResponseType(typeof(AuthLoginResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthLoginResponseDto>> Login([FromBody] AuthLoginRequestDto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
+        {
+            return BadRequest("Username and password are required.");
+        }
 
+        var baseUrl = _configuration["Keycloak:BaseUrl"];
+        var realm = _configuration["Keycloak:Realm"];
+        var clientId = _configuration["Keycloak:ClientId"];
+
+        var tokenUrl = $"{baseUrl}/realms/{realm}/protocol/openid-connect/token";
+
+        var form = new Dictionary<string, string>
+        {
+            ["client_id"] = clientId!,
+            ["grant_type"] = "password",
+            ["username"] = request.Username,
+            ["password"] = request.Password
+        };
+
+        var client = _httpClientFactory.CreateClient();
+
+        using var content = new FormUrlEncodedContent(form);
+        using var response = await client.PostAsync(tokenUrl, content);
+
+        var json = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return Unauthorized(json);
+        }
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var accessToken = root.GetProperty("access_token").GetString() ?? string.Empty;
+        var refreshToken = root.GetProperty("refresh_token").GetString() ?? string.Empty;
+        var tokenType = root.GetProperty("token_type").GetString() ?? "Bearer";
+        var expiresIn = root.GetProperty("expires_in").GetInt32();
+
+        var dto = new AuthLoginResponseDto(
+            AccessToken: accessToken,
+            RefreshToken: refreshToken,
+            TokenType: tokenType,
+            ExpiresIn: expiresIn
+        );
+
+        return Ok(dto);
+    }
+    
     [HttpGet("me")]
+    [Authorize]
     [ProducesResponseType(typeof(AuthMeResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public ActionResult<AuthMeResponseDto> GetMe()
