@@ -33,9 +33,6 @@ public sealed class UsersController : ControllerBase
         var dto = new UserMeResponseDTO(
             user.Id,
             user.KeycloakId,
-            user.Email,
-            user.DisplayName,
-            user.Role,
             user.CreatedAt,
             user.UpdatedAt);
 

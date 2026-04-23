@@ -486,3 +486,6 @@ docker-compose.override.yml
 
 #Config local appsetings.json
 appsettings.Development.json
+
+# Notes/cours locaux
+Docs/Cours-Fevre/

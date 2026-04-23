@@ -21,33 +21,24 @@ public sealed class CurrentUserService
 
     public async Task<User?> GetOrCreateFromPrincipalAsync(ClaimsPrincipal principal, CancellationToken cancellationToken)
     {
-        var sub = PrincipalClaimsHelper.GetKeycloakSub(principal);
+        var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier) ??
+                  principal.FindFirstValue("sub");
         if (string.IsNullOrWhiteSpace(sub))
             return null;
 
         var existing = await _db.Users.FirstOrDefaultAsync(u => u.KeycloakId == sub, cancellationToken);
         if (existing is not null)
-        {
-            await ApplyClaimsToUserAsync(existing, principal, cancellationToken);
             return existing;
-        }
-
-        var email = PrincipalClaimsHelper.GetEmail(principal);
-        if (string.IsNullOrWhiteSpace(email))
-            email = $"{sub}@users.local";
-
-        var displayName = PrincipalClaimsHelper.GetDisplayName(principal);
-
-        var role = PrincipalClaimsHelper.ResolveMainRole(principal) ?? UserRole.Citizen;
         var now = DateTime.UtcNow;
 
         var user = new User
         {
             Id = Guid.NewGuid(),
             KeycloakId = sub,
-            Email = email.Trim(),
-            DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName.Trim(),
-            Role = role,
+            // Keep local columns valid without treating token profile as app source of truth.
+            Email = $"{sub}@users.local",
+            DisplayName = null,
+            Role = UserRole.Citizen,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -56,41 +47,5 @@ public sealed class CurrentUserService
         await _db.SaveChangesAsync(cancellationToken);
 
         return user;
-    }
-
-    private async Task ApplyClaimsToUserAsync(User user, ClaimsPrincipal principal, CancellationToken cancellationToken)
-    {
-        var email = PrincipalClaimsHelper.GetEmail(principal);
-        var displayName = PrincipalClaimsHelper.GetDisplayName(principal);
-        var role = PrincipalClaimsHelper.ResolveMainRole(principal);
-
-        var changed = false;
-        if (!string.IsNullOrWhiteSpace(email) && !string.Equals(user.Email, email.Trim(), StringComparison.Ordinal))
-        {
-            user.Email = email.Trim();
-            changed = true;
-        }
-
-        if (displayName is not null)
-        {
-            var trimmed = displayName.Trim();
-            if (!string.Equals(user.DisplayName, trimmed, StringComparison.Ordinal))
-            {
-                user.DisplayName = string.IsNullOrEmpty(trimmed) ? null : trimmed;
-                changed = true;
-            }
-        }
-
-        if (role is not null && user.Role != role)
-        {
-            user.Role = role.Value;
-            changed = true;
-        }
-
-        if (!changed)
-            return;
-
-        user.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(cancellationToken);
     }
 }
