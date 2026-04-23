@@ -161,8 +161,6 @@ public class AuthController : ControllerBase
         return Ok(dto);
     }
     
-    
-    
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType(typeof(AuthMeResponseDto), StatusCodes.Status200OK)]
@@ -224,6 +222,39 @@ public class AuthController : ControllerBase
             return UserRole.Citizen;
 
         return null;
+    }
+    
+    [AllowAnonymous]
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Logout([FromBody] LogoutRequestDto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+            return BadRequest("Refresh token is required.");
+
+        var baseUrl = _configuration["Keycloak:Url"];
+        var realm = _configuration["Keycloak:Realm"];
+        var clientId = _configuration["Keycloak:ClientId"];
+
+        var logoutUrl = $"{baseUrl}/realms/{realm}/protocol/openid-connect/logout";
+
+        var form = new Dictionary<string, string>
+        {
+            ["client_id"] = clientId!,
+            ["refresh_token"] = request.RefreshToken
+        };
+
+        var client = _httpClientFactory.CreateClient();
+
+        using var content = new FormUrlEncodedContent(form);
+        using var response = await client.PostAsync(logoutUrl, content);
+
+        if (!response.IsSuccessStatusCode)
+            return Unauthorized(await response.Content.ReadAsStringAsync());
+
+        return NoContent();
     }
 }
 
