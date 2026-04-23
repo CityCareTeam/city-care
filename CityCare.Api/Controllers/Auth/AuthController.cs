@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using CityCare.Api.Dtos.Auth;
 using CityCare.Api.Services;
-using CityCare.Core.Enums;
 
 namespace CityCare.Api.Controllers.Auth;
 
@@ -61,31 +60,13 @@ public class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public ActionResult<AuthMeResponseDto> GetMe()
     {
-        var sub = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        var email = User.FindFirst(ClaimTypes.Email)?.Value;
+        var sub = PrincipalClaimsHelper.GetKeycloakSub(User);
+        var email = PrincipalClaimsHelper.GetEmail(User);
         var username = User.FindFirst("preferred_username")?.Value;
         var firstName = User.FindFirst(ClaimTypes.GivenName)?.Value;
         var lastName = User.FindFirst(ClaimTypes.Surname)?.Value;
-
-
-        var ignoredRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "offline_access",
-            "default-roles-citycare",
-            "uma_authorization"
-        };
-
-        // Lire les rôles depuis le claim "roles" et ClaimTypes.Role
-        var roles = User.FindAll("roles")
-            .Concat(User.FindAll(ClaimTypes.Role))
-            .Select(c => c.Value)
-            .Where(r => !string.IsNullOrWhiteSpace(r))
-            .Where(r => !ignoredRoles.Contains(r))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        
-        
-        var mainRole = ResolveMainRole(roles);
+        var roles = PrincipalClaimsHelper.GetBusinessRoles(User);
+        var mainRole = PrincipalClaimsHelper.ResolveMainRole(User);
 
         var response = new AuthMeResponseDto(
             Sub: sub,
@@ -100,22 +81,5 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
-    private static UserRole? ResolveMainRole(IEnumerable<string> roles)
-    {
-        var normalizedRoles = roles
-            .Select(r => r.Trim().ToLowerInvariant())
-            .ToHashSet();
-
-        if (normalizedRoles.Contains("admin"))
-            return UserRole.Admin;
-
-        if (normalizedRoles.Contains("agent"))
-            return UserRole.Agent;
-
-        if (normalizedRoles.Contains("citizen"))
-            return UserRole.Citizen;
-
-        return null;
-    }
 }
 

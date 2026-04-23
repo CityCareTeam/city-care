@@ -19,13 +19,9 @@ public sealed class CurrentUserService
         _db = db;
     }
 
-    public static string? GetKeycloakSub(ClaimsPrincipal principal) =>
-        principal.FindFirstValue(ClaimTypes.NameIdentifier) ??
-        principal.FindFirstValue("sub");
-
     public async Task<User?> GetOrCreateFromPrincipalAsync(ClaimsPrincipal principal, CancellationToken cancellationToken)
     {
-        var sub = GetKeycloakSub(principal);
+        var sub = PrincipalClaimsHelper.GetKeycloakSub(principal);
         if (string.IsNullOrWhiteSpace(sub))
             return null;
 
@@ -36,14 +32,13 @@ public sealed class CurrentUserService
             return existing;
         }
 
-        var email = principal.FindFirstValue(ClaimTypes.Email) ?? principal.FindFirstValue("email");
+        var email = PrincipalClaimsHelper.GetEmail(principal);
         if (string.IsNullOrWhiteSpace(email))
             email = $"{sub}@users.local";
 
-        var displayName = principal.FindFirstValue("preferred_username")
-                          ?? principal.FindFirstValue("name");
+        var displayName = PrincipalClaimsHelper.GetDisplayName(principal);
 
-        var role = ResolveMainRoleFromPrincipal(principal) ?? UserRole.Citizen;
+        var role = PrincipalClaimsHelper.ResolveMainRole(principal) ?? UserRole.Citizen;
         var now = DateTime.UtcNow;
 
         var user = new User
@@ -65,10 +60,9 @@ public sealed class CurrentUserService
 
     private async Task ApplyClaimsToUserAsync(User user, ClaimsPrincipal principal, CancellationToken cancellationToken)
     {
-        var email = principal.FindFirstValue(ClaimTypes.Email) ?? principal.FindFirstValue("email");
-        var displayName = principal.FindFirstValue("preferred_username")
-                            ?? principal.FindFirstValue("name");
-        var role = ResolveMainRoleFromPrincipal(principal);
+        var email = PrincipalClaimsHelper.GetEmail(principal);
+        var displayName = PrincipalClaimsHelper.GetDisplayName(principal);
+        var role = PrincipalClaimsHelper.ResolveMainRole(principal);
 
         var changed = false;
         if (!string.IsNullOrWhiteSpace(email) && !string.Equals(user.Email, email.Trim(), StringComparison.Ordinal))
@@ -98,32 +92,5 @@ public sealed class CurrentUserService
 
         user.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
-    }
-
-    private static UserRole? ResolveMainRoleFromPrincipal(ClaimsPrincipal principal)
-    {
-        var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "offline_access",
-            "default-roles-citycare",
-            "uma_authorization"
-        };
-
-        var roles = principal.FindAll("roles")
-            .Concat(principal.FindAll(ClaimTypes.Role))
-            .Select(c => c.Value)
-            .Where(r => !string.IsNullOrWhiteSpace(r))
-            .Where(r => !ignored.Contains(r))
-            .Select(r => r.Trim().ToLowerInvariant())
-            .ToHashSet();
-
-        if (roles.Contains("admin"))
-            return UserRole.Admin;
-        if (roles.Contains("agent"))
-            return UserRole.Agent;
-        if (roles.Contains("citizen"))
-            return UserRole.Citizen;
-
-        return null;
     }
 }
