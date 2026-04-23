@@ -1,6 +1,6 @@
 ﻿using CityCare.Core.Enums;
 
-namespace CityCare.Api.Dtos.Auth;
+namespace CityCare.Api.Models.Dtos.Auth;
 
 public sealed record AuthMeResponseDto(
     string? Sub, // UUID from Keycloak
