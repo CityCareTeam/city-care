@@ -1,7 +1,7 @@
 ﻿using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using CityCare.Api.Dtos.Auth;
+using CityCare.Api.Models.Dtos.Auth;
 using CityCare.Api.Services;
 using CityCare.Core.Enums;
 
@@ -114,6 +114,54 @@ public class AuthController : ControllerBase
 
         return Ok(dto);
     }
+    
+    [AllowAnonymous]
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(AuthLoginResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthLoginResponseDto>> RefreshToken([FromBody] RefreshTokenRequestDto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.RefreshToken))
+            return BadRequest("Refresh token is required.");
+
+        var baseUrl = _configuration["Keycloak:Url"];
+        var realm = _configuration["Keycloak:Realm"];
+        var clientId = _configuration["Keycloak:ClientId"];
+
+        var tokenUrl = $"{baseUrl}/realms/{realm}/protocol/openid-connect/token";
+
+        var form = new Dictionary<string, string>
+        {
+            ["client_id"] = clientId!,
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = request.RefreshToken
+        };
+
+        var client = _httpClientFactory.CreateClient();
+
+        using var content = new FormUrlEncodedContent(form);
+        using var response = await client.PostAsync(tokenUrl, content);
+
+        var json = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            return Unauthorized(json);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+
+        var dto = new AuthLoginResponseDto(
+            AccessToken: root.GetProperty("access_token").GetString() ?? string.Empty,
+            RefreshToken: root.GetProperty("refresh_token").GetString() ?? string.Empty,
+            TokenType: root.GetProperty("token_type").GetString() ?? "Bearer",
+            ExpiresIn: root.GetProperty("expires_in").GetInt32()
+        );
+
+        return Ok(dto);
+    }
+    
+    
     
     [HttpGet("me")]
     [Authorize]
