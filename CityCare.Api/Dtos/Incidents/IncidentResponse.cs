@@ -1,16 +1,17 @@
 namespace CityCare.Api.Dtos.Incidents;
 
-public record IncidentResponse(
-    Guid Id,
-    Guid AuthorUserId,
-    string? AuthorDisplayName,
-    string Type,
-    string Description,
-    decimal Latitude,
-    decimal Longitude,
-    string AddressLabel,
-    string Status,
-    DateTime CreatedAt,
-    DateTime UpdatedAt,
-    DateTime? ResolvedAt
-);
+public class IncidentResponse
+{
+    public Guid Id { get; set; }
+    public Guid AuthorUserId { get; set; }
+    public string? AuthorDisplayName { get; set; }
+    public string Type { get; set; } = null!;
+    public string Description { get; set; } = null!;
+    public decimal Latitude { get; set; }
+    public decimal Longitude { get; set; }
+    public string AddressLabel { get; set; } = null!;
+    public string Status { get; set; } = null!;
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public DateTime? ResolvedAt { get; set; }
+}
