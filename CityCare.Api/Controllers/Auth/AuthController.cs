@@ -71,7 +71,7 @@ public class AuthController : ControllerBase
             return BadRequest("Username and password are required.");
         }
 
-        var baseUrl = _configuration["Keycloak:BaseUrl"];
+        var baseUrl = _configuration["Keycloak:Url"];
         var realm = _configuration["Keycloak:Realm"];
         var clientId = _configuration["Keycloak:ClientId"];
 
