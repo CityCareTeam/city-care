@@ -58,12 +58,18 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 {
                     var roles = context.Principal
                         .FindAll("roles")
-                        .Select(c => c.Value)
+                        .Select(c => c.Value.ToLower())
                         .Distinct();
 
                     foreach (var role in roles)
                     {
                         identity.AddClaim(new Claim(ClaimTypes.Role, role));
+                    }
+                    // Ajouter le "mainRole" si présent
+                    var mainRole = context.Principal.FindFirst("mainRole")?.Value;
+                    if (!string.IsNullOrEmpty(mainRole))
+                    {
+                        identity.AddClaim(new Claim(ClaimTypes.Role, mainRole.ToLower()));
                     }
                 }
 
