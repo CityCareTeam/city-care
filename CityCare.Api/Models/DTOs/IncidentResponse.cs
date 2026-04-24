@@ -1,3 +1,5 @@
+using System;
+
 namespace CityCare.Api.Dtos.Incidents;
 
 public class IncidentResponse
