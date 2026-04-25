@@ -27,15 +27,7 @@ public class CityCareDbContext : DbContext
                 .IsRequired()
                 .HasMaxLength(255);
 
-            entity.Property(u => u.Email)
-                .IsRequired()
-                .HasMaxLength(255);
-
-            entity.Property(u => u.DisplayName)
-                .HasMaxLength(100);
-
             entity.HasIndex(u => u.KeycloakId).IsUnique();
-            entity.HasIndex(u => u.Email).IsUnique();
         });
 
         modelBuilder.Entity<Incident>(entity =>

@@ -1,6 +1,5 @@
 using System.Security.Claims;
 using CityCare.Core.Entities;
-using CityCare.Core.Enums;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -35,10 +34,6 @@ public sealed class CurrentUserService
         {
             Id = Guid.NewGuid(),
             KeycloakId = sub,
-            // Keep local columns valid without treating token profile as app source of truth.
-            Email = $"{sub}@users.local",
-            DisplayName = null,
-            Role = UserRole.Citizen,
             CreatedAt = now,
             UpdatedAt = now
         };
