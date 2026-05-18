@@ -6,8 +6,8 @@ using Microsoft.EntityFrameworkCore;
 namespace CityCare.Api.Services;
 
 /// <summary>
-/// Résout l'utilisateur courant via le claim Keycloak <c>sub</c> (stocké en <see cref="User.KeycloakId"/>)
-/// et crée la ligne en base au besoin (piste A : sync au premier appel).
+/// Synchronise les utilisateurs Keycloak (<see cref="User.KeycloakId"/> = claim <c>sub</c>)
+/// vers la base applicative, à l'inscription ou au premier appel authentifié.
 /// </summary>
 public sealed class CurrentUserService
 {
@@ -18,22 +18,20 @@ public sealed class CurrentUserService
         _db = db;
     }
 
-    public async Task<User?> GetOrCreateFromPrincipalAsync(ClaimsPrincipal principal, CancellationToken cancellationToken)
+    public async Task<User> GetOrCreateByKeycloakIdAsync(string keycloakId, CancellationToken cancellationToken = default)
     {
-        var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier) ??
-                  principal.FindFirstValue("sub");
-        if (string.IsNullOrWhiteSpace(sub))
-            return null;
+        ArgumentException.ThrowIfNullOrWhiteSpace(keycloakId);
 
-        var existing = await _db.Users.FirstOrDefaultAsync(u => u.KeycloakId == sub, cancellationToken);
+        var existing = await _db.Users
+            .FirstOrDefaultAsync(u => u.KeycloakId == keycloakId, cancellationToken);
         if (existing is not null)
             return existing;
-        var now = DateTime.UtcNow;
 
+        var now = DateTime.UtcNow;
         var user = new User
         {
             Id = Guid.NewGuid(),
-            KeycloakId = sub,
+            KeycloakId = keycloakId,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -42,5 +40,15 @@ public sealed class CurrentUserService
         await _db.SaveChangesAsync(cancellationToken);
 
         return user;
+    }
+
+    public async Task<User?> GetOrCreateFromPrincipalAsync(ClaimsPrincipal principal, CancellationToken cancellationToken = default)
+    {
+        var sub = principal.FindFirstValue(ClaimTypes.NameIdentifier) ??
+                  principal.FindFirstValue("sub");
+        if (string.IsNullOrWhiteSpace(sub))
+            return null;
+
+        return await GetOrCreateByKeycloakIdAsync(sub, cancellationToken);
     }
 }
