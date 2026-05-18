@@ -1,7 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
 
-namespace CityCare.Api.Dtos.Auth;
+namespace CityCare.Api.Models.Dtos.Auth;
 
 public sealed record RegisterRequestDto(
     [Required(ErrorMessage = "L'email est requis")]
