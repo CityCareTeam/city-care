@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using CityCare.Api.Dtos.Incidents;
 using CityCare.Api.Models.DTOs;
 using CityCare.Api.Services;
@@ -41,19 +40,11 @@ public sealed class IncidentsController : ControllerBase
         [FromBody] CreateIncidentRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdValue =
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
+        var author = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (author is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
-        if (!Guid.TryParse(userIdValue, out var authorUserId))
-            return Unauthorized(new { error = "Missing or invalid user id claim." });
-
-        var userExists = await _db.Users
-            .AsNoTracking()
-            .AnyAsync(u => u.Id == authorUserId, cancellationToken);
-
-        if (!userExists)
-            return Unauthorized(new { error = "User not found in local database." });
+        var authorUserId = author.Id;
 
         var geocode = await _geocodeService.ReverseGeocodeAsync(
             request.Latitude, request.Longitude, cancellationToken);
@@ -84,7 +75,6 @@ public sealed class IncidentsController : ControllerBase
         {
             Id                = incident.Id,
             AuthorUserId      = incident.AuthorUserId,
-            AuthorDisplayName = null,
             Type              = incident.Type.ToString(),
             Description       = incident.Description,
             Latitude          = incident.Latitude,
@@ -118,10 +108,7 @@ public sealed class IncidentsController : ControllerBase
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
-        var query = _db.Incidents
-            .AsNoTracking()
-            .Include(i => i.AuthorUser)
-            .AsQueryable();
+        var query = _db.Incidents.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -154,7 +141,6 @@ public sealed class IncidentsController : ControllerBase
         {
             Id                = i.Id,
             AuthorUserId      = i.AuthorUserId,
-            AuthorDisplayName = i.AuthorUser.DisplayName,
             Type              = i.Type.ToString(),
             Description       = i.Description,
             Latitude          = i.Latitude,
@@ -188,7 +174,6 @@ public sealed class IncidentsController : ControllerBase
     {
         var incident = await _db.Incidents
             .AsNoTracking()
-            .Include(i => i.AuthorUser)
             .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
 
         if (incident is null)
@@ -198,7 +183,6 @@ public sealed class IncidentsController : ControllerBase
         {
             Id                = incident.Id,
             AuthorUserId      = incident.AuthorUserId,
-            AuthorDisplayName = incident.AuthorUser.DisplayName,
             Type              = incident.Type.ToString(),
             Description       = incident.Description,
             Latitude          = incident.Latitude,

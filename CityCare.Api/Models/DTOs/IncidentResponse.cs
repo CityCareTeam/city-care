@@ -6,7 +6,6 @@ public class IncidentResponse
 {
     public Guid Id { get; set; }
     public Guid AuthorUserId { get; set; }
-    public string? AuthorDisplayName { get; set; }
     public string Type { get; set; } = null!;
     public string Description { get; set; } = null!;
     public decimal Latitude { get; set; }
