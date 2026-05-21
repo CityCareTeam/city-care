@@ -33,8 +33,8 @@ public sealed class UsersController : ControllerBase
         var dto = new UserMeResponseDTO(
             user.Id,
             user.KeycloakId,
-            DateTime.SpecifyKind(user.CreatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
-            DateTime.SpecifyKind(user.UpdatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)));
+            new DateTimeOffset(DateTime.SpecifyKind(user.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            new DateTimeOffset(DateTime.SpecifyKind(user.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)));
 
         return Ok(dto);
     }
@@ -46,7 +46,7 @@ public sealed class UsersController : ControllerBase
         if (user is null)
             return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
-        var incidents = await _db.Incidents
+        var incidentsRaw = await _db.Incidents
             .AsNoTracking()
             .Where(i => i.AuthorUserId == user.Id)
             .OrderByDescending(i => i.CreatedAt)
@@ -56,9 +56,18 @@ public sealed class UsersController : ControllerBase
                 type = i.Type.ToString(),
                 status = IncidentService.ToSnakeCase(i.Status),
                 address_label = i.AddressLabel,
-                created_at = DateTime.SpecifyKind(i.CreatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2))
+                created_at = i.CreatedAt
             })
             .ToListAsync(cancellationToken);
+
+        var incidents = incidentsRaw.Select(i => new
+        {
+            id = i.id,
+            type = i.type,
+            status = i.status,
+            address_label = i.address_label,
+            created_at = new DateTimeOffset(DateTime.SpecifyKind(i.created_at, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
+        }).ToList();
 
         return Ok(new { data = incidents });
     }

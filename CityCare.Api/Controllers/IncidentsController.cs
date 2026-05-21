@@ -82,10 +82,10 @@ public sealed class IncidentsController : ControllerBase
             AddressLabel      = incident.AddressLabel,
             Status            = IncidentService.ToSnakeCase(incident.Status),
             // Convert stored UTC DateTime to DateTimeOffset with +02:00 so clients see local time
-            CreatedAt         = DateTime.SpecifyKind(incident.CreatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
-            UpdatedAt         = DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
+            CreatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            UpdatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
             ResolvedAt        = incident.ResolvedAt.HasValue
-                ? DateTime.SpecifyKind(incident.ResolvedAt.Value, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2))
+                ? new DateTimeOffset(DateTime.SpecifyKind(incident.ResolvedAt.Value, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
                 : null
         };
 
@@ -150,10 +150,10 @@ public sealed class IncidentsController : ControllerBase
             Longitude         = i.Longitude,
             AddressLabel      = i.AddressLabel,
             Status            = IncidentService.ToSnakeCase(i.Status),
-            CreatedAt         = DateTime.SpecifyKind(i.CreatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
-            UpdatedAt         = DateTime.SpecifyKind(i.UpdatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
+            CreatedAt         = new DateTimeOffset(DateTime.SpecifyKind(i.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            UpdatedAt         = new DateTimeOffset(DateTime.SpecifyKind(i.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
             ResolvedAt        = i.ResolvedAt.HasValue
-                ? DateTime.SpecifyKind(i.ResolvedAt.Value, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2))
+                ? new DateTimeOffset(DateTime.SpecifyKind(i.ResolvedAt.Value, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
                 : null
         }).ToList();
 
@@ -194,10 +194,10 @@ public sealed class IncidentsController : ControllerBase
             Longitude         = incident.Longitude,
             AddressLabel      = incident.AddressLabel,
             Status            = IncidentService.ToSnakeCase(incident.Status),
-            CreatedAt         = DateTime.SpecifyKind(incident.CreatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
-            UpdatedAt         = DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
+            CreatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            UpdatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
             ResolvedAt        = incident.ResolvedAt.HasValue
-                ? DateTime.SpecifyKind(incident.ResolvedAt.Value, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2))
+                ? new DateTimeOffset(DateTime.SpecifyKind(incident.ResolvedAt.Value, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
                 : null
         });
     }
@@ -289,7 +289,7 @@ public sealed class IncidentsController : ControllerBase
         {
             id         = incident.Id,
             status     = IncidentService.ToSnakeCase(incident.Status),
-            updated_at = DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2))
+            updated_at = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
         });
     }
 
