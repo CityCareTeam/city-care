@@ -12,7 +12,8 @@ public class IncidentResponse
     public decimal Longitude { get; set; }
     public string AddressLabel { get; set; } = null!;
     public string Status { get; set; } = null!;
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
-    public DateTime? ResolvedAt { get; set; }
+    // Use DateTimeOffset so responses include timezone offset information
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset UpdatedAt { get; set; }
+    public DateTimeOffset? ResolvedAt { get; set; }
 }

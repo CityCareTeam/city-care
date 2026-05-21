@@ -33,8 +33,8 @@ public sealed class UsersController : ControllerBase
         var dto = new UserMeResponseDTO(
             user.Id,
             user.KeycloakId,
-            user.CreatedAt,
-            user.UpdatedAt);
+            DateTime.SpecifyKind(user.CreatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)),
+            DateTime.SpecifyKind(user.UpdatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2)));
 
         return Ok(dto);
     }
@@ -56,7 +56,7 @@ public sealed class UsersController : ControllerBase
                 type = i.Type.ToString(),
                 status = IncidentService.ToSnakeCase(i.Status),
                 address_label = i.AddressLabel,
-                created_at = i.CreatedAt
+                created_at = DateTime.SpecifyKind(i.CreatedAt, DateTimeKind.Utc).ToOffset(TimeSpan.FromHours(2))
             })
             .ToListAsync(cancellationToken);
 
