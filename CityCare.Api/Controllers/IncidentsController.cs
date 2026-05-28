@@ -1,9 +1,8 @@
-using System.Security.Claims;
 using CityCare.Api.Dtos.Incidents;
+using CityCare.Api.Models.DTOs;
 using CityCare.Api.Services;
 using CityCare.Core.Entities;
 using CityCare.Core.Enums;
-using CityCare.Api.Models.DTOs;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -18,15 +17,18 @@ public sealed class IncidentsController : ControllerBase
 {
     private readonly CityCareDbContext _db;
     private readonly IncidentService _incidentService;
+    private readonly CurrentUserService _currentUser;
     private readonly GeocodeService _geocodeService;
 
     public IncidentsController(
         CityCareDbContext db,
         IncidentService incidentService,
+        CurrentUserService currentUser,
         GeocodeService geocodeService)
     {
         _db = db;
         _incidentService = incidentService;
+        _currentUser = currentUser;
         _geocodeService = geocodeService;
     }
 
@@ -38,19 +40,11 @@ public sealed class IncidentsController : ControllerBase
         [FromBody] CreateIncidentRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdValue =
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
+        var author = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (author is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
-        if (!Guid.TryParse(userIdValue, out var authorUserId))
-            return Unauthorized(new { error = "Missing or invalid user id claim." });
-
-        var userExists = await _db.Users
-            .AsNoTracking()
-            .AnyAsync(u => u.Id == authorUserId, cancellationToken);
-
-        if (!userExists)
-            return Unauthorized(new { error = "User not found in local database." });
+        var authorUserId = author.Id;
 
         var geocode = await _geocodeService.ReverseGeocodeAsync(
             request.Latitude, request.Longitude, cancellationToken);
@@ -81,16 +75,18 @@ public sealed class IncidentsController : ControllerBase
         {
             Id                = incident.Id,
             AuthorUserId      = incident.AuthorUserId,
-            AuthorDisplayName = null,
             Type              = incident.Type.ToString(),
             Description       = incident.Description,
             Latitude          = incident.Latitude,
             Longitude         = incident.Longitude,
             AddressLabel      = incident.AddressLabel,
             Status            = IncidentService.ToSnakeCase(incident.Status),
-            CreatedAt         = incident.CreatedAt,
-            UpdatedAt         = incident.UpdatedAt,
-            ResolvedAt        = incident.ResolvedAt
+            // Convert stored UTC DateTime to DateTimeOffset with +02:00 so clients see local time
+            CreatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            UpdatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            ResolvedAt        = incident.ResolvedAt.HasValue
+                ? new DateTimeOffset(DateTime.SpecifyKind(incident.ResolvedAt.Value, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
+                : null
         };
 
         return CreatedAtAction(nameof(GetById), new { id = incident.Id }, response);
@@ -115,10 +111,7 @@ public sealed class IncidentsController : ControllerBase
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
-        var query = _db.Incidents
-            .AsNoTracking()
-            .Include(i => i.AuthorUser)
-            .AsQueryable();
+        var query = _db.Incidents.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -151,16 +144,17 @@ public sealed class IncidentsController : ControllerBase
         {
             Id                = i.Id,
             AuthorUserId      = i.AuthorUserId,
-            AuthorDisplayName = i.AuthorUser.DisplayName,
             Type              = i.Type.ToString(),
             Description       = i.Description,
             Latitude          = i.Latitude,
             Longitude         = i.Longitude,
             AddressLabel      = i.AddressLabel,
             Status            = IncidentService.ToSnakeCase(i.Status),
-            CreatedAt         = i.CreatedAt,
-            UpdatedAt         = i.UpdatedAt,
-            ResolvedAt        = i.ResolvedAt
+            CreatedAt         = new DateTimeOffset(DateTime.SpecifyKind(i.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            UpdatedAt         = new DateTimeOffset(DateTime.SpecifyKind(i.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            ResolvedAt        = i.ResolvedAt.HasValue
+                ? new DateTimeOffset(DateTime.SpecifyKind(i.ResolvedAt.Value, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
+                : null
         }).ToList();
 
         return Ok(new
@@ -185,7 +179,6 @@ public sealed class IncidentsController : ControllerBase
     {
         var incident = await _db.Incidents
             .AsNoTracking()
-            .Include(i => i.AuthorUser)
             .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
 
         if (incident is null)
@@ -195,16 +188,17 @@ public sealed class IncidentsController : ControllerBase
         {
             Id                = incident.Id,
             AuthorUserId      = incident.AuthorUserId,
-            AuthorDisplayName = incident.AuthorUser.DisplayName,
             Type              = incident.Type.ToString(),
             Description       = incident.Description,
             Latitude          = incident.Latitude,
             Longitude         = incident.Longitude,
             AddressLabel      = incident.AddressLabel,
             Status            = IncidentService.ToSnakeCase(incident.Status),
-            CreatedAt         = incident.CreatedAt,
-            UpdatedAt         = incident.UpdatedAt,
-            ResolvedAt        = incident.ResolvedAt
+            CreatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            UpdatedAt         = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)),
+            ResolvedAt        = incident.ResolvedAt.HasValue
+                ? new DateTimeOffset(DateTime.SpecifyKind(incident.ResolvedAt.Value, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
+                : null
         });
     }
 
@@ -264,12 +258,11 @@ public sealed class IncidentsController : ControllerBase
         if (!_incidentService.IsValidTransition(incident.Status, nextStatus))
             return UnprocessableEntity(new { error = "Transition de statut invalide." });
 
-        var userIdValue =
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
-        if (!Guid.TryParse(userIdValue, out var changedByUserId))
-            return Unauthorized(new { error = "Missing or invalid user id claim." });
+        var changedByUserId = actor.Id;
 
         var now           = DateTime.UtcNow;
         var currentStatus = incident.Status;
@@ -296,7 +289,7 @@ public sealed class IncidentsController : ControllerBase
         {
             id         = incident.Id,
             status     = IncidentService.ToSnakeCase(incident.Status),
-            updated_at = incident.UpdatedAt
+            updated_at = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
         });
     }
 

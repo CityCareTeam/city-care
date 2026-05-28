@@ -12,13 +12,20 @@ namespace CityCare.Api.Controllers.Auth;
 public class AuthController : ControllerBase
 {
     private readonly KeycloakService _keycloakService;
+    private readonly CurrentUserService _currentUser;
     private readonly ILogger<AuthController> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
 
-    public AuthController(KeycloakService keycloakService, ILogger<AuthController> logger, IHttpClientFactory httpClientFactory, IConfiguration configuration)
+    public AuthController(
+        KeycloakService keycloakService,
+        CurrentUserService currentUser,
+        ILogger<AuthController> logger,
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration)
     {
         _keycloakService = keycloakService;
+        _currentUser = currentUser;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
@@ -28,21 +35,25 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(typeof(RegisterResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<RegisterResponseDto>> Register([FromBody] RegisterRequestDto request)
+    public async Task<ActionResult<RegisterResponseDto>> Register(
+        [FromBody] RegisterRequestDto request,
+        CancellationToken cancellationToken)
     {
         try
         {
             _logger.LogInformation("Tentative d'inscription pour l'utilisateur: {Username}", request.Username);
 
-            var userId = await _keycloakService.CreateUserAsync(
+            var keycloakUserId = await _keycloakService.CreateUserAsync(
                 request.Email, 
                 request.Username, 
                 request.FirstName,
                 request.LastName,
                 request.Password);
 
+            await _currentUser.GetOrCreateByKeycloakIdAsync(keycloakUserId, cancellationToken);
+
             var response = new RegisterResponseDto(
-                UserId: userId,
+                UserId: keycloakUserId,
                 Email: request.Email,
                 Username: request.Username,
                 LastName: request.LastName,
