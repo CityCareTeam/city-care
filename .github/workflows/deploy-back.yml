@@ -16,5 +16,8 @@ jobs:
       - name: Deploy
         run: |
           cd /home/stagiaire/city-care
-          git pull
+          git fetch origin
+          git checkout main
+          git reset --hard origin/main
           docker compose up -d --build
+          docker image prune -f
