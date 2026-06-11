@@ -237,6 +237,52 @@ public sealed class IncidentsController : ControllerBase
     }
 
     // ─────────────────────────────────────────────────────────────
+    // GET /incidents/{id}/status-history — Historique des changements de statut
+    // ─────────────────────────────────────────────────────────────
+    [HttpGet("{id:guid}/status-history")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetStatusHistory(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var historyRows = await _db.IncidentStatusHistories
+            .AsNoTracking()
+            .Where(h => h.IncidentId == id)
+            .OrderBy(h => h.ChangedAt)
+            .Select(h => new
+            {
+                h.Id,
+                h.OldStatus,
+                h.NewStatus,
+                h.ChangedByUserId,
+                ChangedByKeycloakId = h.ChangedByUser.KeycloakId,
+                h.Comment,
+                h.ChangedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var history = historyRows.Select(h => new StatusHistoryResponse
+        {
+            Id                  = h.Id,
+            OldStatus           = IncidentService.ToSnakeCase(h.OldStatus),
+            NewStatus           = IncidentService.ToSnakeCase(h.NewStatus),
+            ChangedByUserId     = h.ChangedByUserId,
+            ChangedByKeycloakId = h.ChangedByKeycloakId,
+            Comment             = h.Comment,
+            ChangedAt           = new DateTimeOffset(
+                DateTime.SpecifyKind(h.ChangedAt, DateTimeKind.Utc))
+                .ToOffset(TimeSpan.FromHours(2))
+        }).ToList();
+
+        return Ok(new { data = history });
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // PATCH /incidents/{id}/status — Changer le statut (agent/admin)
     // ─────────────────────────────────────────────────────────────
     [HttpPatch("{id:guid}/status")]

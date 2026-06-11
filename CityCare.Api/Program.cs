@@ -32,10 +32,14 @@ builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<KeycloakService>();
 
 // Authentification
+var keycloakUrl = builder.Configuration["Keycloak:Url"] ?? "http://localhost:8080";
+var keycloakRealm = builder.Configuration["Keycloak:Realm"] ?? "CityCare";
+var keycloakAuthority = $"{keycloakUrl.TrimEnd('/')}/realms/{keycloakRealm}";
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = "http://localhost:8080/realms/CityCare";
+        options.Authority = keycloakAuthority;
         options.RequireHttpsMetadata = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
@@ -43,7 +47,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer = true,
             ValidateAudience = false,
             ValidateLifetime = true,
-            ValidIssuer = "http://localhost:8080/realms/CityCare",
+            ValidIssuers = new[]
+            {
+                keycloakAuthority,
+                $"http://localhost:8080/realms/{keycloakRealm}",
+                $"http://keycloak:8080/realms/{keycloakRealm}"
+            },
             NameClaimType = "preferred_username",
             RoleClaimType = ClaimTypes.Role
         };
