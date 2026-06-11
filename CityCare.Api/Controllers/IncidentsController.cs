@@ -38,19 +38,21 @@ public sealed class IncidentsController : ControllerBase
         [FromBody] CreateIncidentRequest request,
         CancellationToken cancellationToken)
     {
-        var userIdValue =
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
+        var keycloakId =
+            User.FindFirstValue("sub") ??
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-        if (!Guid.TryParse(userIdValue, out var authorUserId))
-            return Unauthorized(new { error = "Missing or invalid user id claim." });
+        if (string.IsNullOrEmpty(keycloakId))
+            return Unauthorized(new { error = "Token invalide : claim 'sub' manquant." });
 
-        var userExists = await _db.Users
+        var author = await _db.Users
             .AsNoTracking()
-            .AnyAsync(u => u.Id == authorUserId, cancellationToken);
+            .FirstOrDefaultAsync(u => u.KeycloakId == keycloakId, cancellationToken);
 
-        if (!userExists)
-            return Unauthorized(new { error = "User not found in local database." });
+        if (author is null)
+            return Unauthorized(new { error = "Utilisateur non trouvé en base." });
+
+        var authorUserId = author.Id;
 
         var geocode = await _geocodeService.ReverseGeocodeAsync(
             request.Latitude, request.Longitude, cancellationToken);
@@ -264,12 +266,21 @@ public sealed class IncidentsController : ControllerBase
         if (!_incidentService.IsValidTransition(incident.Status, nextStatus))
             return UnprocessableEntity(new { error = "Transition de statut invalide." });
 
-        var userIdValue =
-            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
-            User.FindFirstValue("sub");
+        var keycloakId =
+            User.FindFirstValue("sub") ??
+            User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-        if (!Guid.TryParse(userIdValue, out var changedByUserId))
-            return Unauthorized(new { error = "Missing or invalid user id claim." });
+        if (string.IsNullOrEmpty(keycloakId))
+            return Unauthorized(new { error = "Token invalide : claim 'sub' manquant." });
+
+        var changer = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.KeycloakId == keycloakId, cancellationToken);
+
+        if (changer is null)
+            return Unauthorized(new { error = "Utilisateur non trouvé en base." });
+
+        var changedByUserId = changer.Id;
 
         var now           = DateTime.UtcNow;
         var currentStatus = incident.Status;

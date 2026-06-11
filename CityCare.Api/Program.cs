@@ -30,55 +30,7 @@ builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<GeocodeService>();
 builder.Services.AddScoped<KeycloakService>();
 
-// Authentification
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.Authority = "http://localhost:8080/realms/CityCare";
-        options.RequireHttpsMetadata = false;
-
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = false,
-            ValidateLifetime = true,
-            ValidIssuer = "http://localhost:8080/realms/CityCare",
-            NameClaimType = "preferred_username",
-            RoleClaimType = ClaimTypes.Role
-        };
-
-        // Mapping des rôles (Keycloak)
-        options.Events = new JwtBearerEvents
-        {
-            OnTokenValidated = context =>
-            {
-                if (context.Principal?.Identity is ClaimsIdentity identity)
-                {
-                    var roles = context.Principal
-                        .FindAll("roles")
-                        .Select(c => c.Value.ToLower())
-                        .Distinct();
-
-                    foreach (var role in roles)
-                    {
-                        identity.AddClaim(new Claim(ClaimTypes.Role, role));
-                    }
-                    // Ajouter le "mainRole" si présent
-                    var mainRole = context.Principal.FindFirst("mainRole")?.Value;
-                    if (!string.IsNullOrEmpty(mainRole))
-                    {
-                        identity.AddClaim(new Claim(ClaimTypes.Role, mainRole.ToLower()));
-                    }
-                }
-
-                return Task.CompletedTask;
-            }
-        };
-    });
-
-builder.Services.AddAuthorization();
-
-// CORS — autorise le front web (dev)
+// CORS — doit être enregistré AVANT l'authentification
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
@@ -93,6 +45,48 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Authentification
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = "http://localhost:8080/realms/CityCare";
+        options.RequireHttpsMetadata = false;
+
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer   = true,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ValidIssuer      = "http://localhost:8080/realms/CityCare",
+            NameClaimType    = "preferred_username",
+            RoleClaimType    = ClaimTypes.Role
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                if (context.Principal?.Identity is ClaimsIdentity identity)
+                {
+                    var roles = context.Principal
+                        .FindAll("roles")
+                        .Select(c => c.Value.ToLower())
+                        .Distinct();
+
+                    foreach (var role in roles)
+                        identity.AddClaim(new Claim(ClaimTypes.Role, role));
+
+                    var mainRole = context.Principal.FindFirst("mainRole")?.Value;
+                    if (!string.IsNullOrEmpty(mainRole))
+                        identity.AddClaim(new Claim(ClaimTypes.Role, mainRole.ToLower()));
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -101,13 +95,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
+// ⚠️ CORS doit être AVANT UseAuthentication et UseAuthorization
+// Ne pas mettre UseHttpsRedirection en dev (HTTP), ça casse le CORS
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
-
 
 app.MapControllers();
 
