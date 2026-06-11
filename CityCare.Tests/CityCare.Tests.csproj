@@ -20,6 +20,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\CityCare.Core\CityCare.Core.csproj" />
+      <ProjectReference Include="..\CityCare.Api\CityCare.Api.csproj" />
     </ItemGroup>
 
 </Project>
