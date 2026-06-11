@@ -1,5 +1,6 @@
 using CityCare.Api.Dtos.Users;
 using CityCare.Api.Services;
+using CityCare.Core.Entities;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,11 +15,13 @@ public sealed class UsersController : ControllerBase
 {
     private readonly CityCareDbContext _db;
     private readonly CurrentUserService _currentUser;
+    private readonly KeycloakService _keycloak;
 
-    public UsersController(CityCareDbContext db, CurrentUserService currentUser)
+    public UsersController(CityCareDbContext db, CurrentUserService currentUser, KeycloakService keycloak)
     {
         _db = db;
         _currentUser = currentUser;
+        _keycloak = keycloak;
     }
 
     [HttpGet("me")]
@@ -70,5 +73,56 @@ public sealed class UsersController : ControllerBase
         }).ToList();
 
         return Ok(new { data = incidents });
+    }
+
+    [HttpPatch("me")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdateMe([FromBody] UpdateMeRequestDto dto, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        if (dto.Email != null || dto.Username != null || dto.FirstName != null || dto.LastName != null)
+            await _keycloak.UpdateUserAsync(user.KeycloakId, dto.Email, dto.Username, dto.FirstName, dto.LastName);
+
+        if (!string.IsNullOrWhiteSpace(dto.NewPassword))
+            await _keycloak.UpdatePasswordAsync(user.KeycloakId, dto.NewPassword);
+
+        user.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "Profil mis à jour avec succès." });
+    }
+
+    [HttpDelete("me")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DeleteMe(CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        // Supprimer d'abord les références Restrict avant la suppression en cascade
+        await _db.Set<IncidentStatusHistory>()
+            .Where(h => h.ChangedByUserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _db.Set<IncidentPhoto>()
+            .Where(p => p.UploadedByUserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        _db.Users.Remove(user);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        await _keycloak.DeleteUserAsync(user.KeycloakId);
+
+        return NoContent();
     }
 }
