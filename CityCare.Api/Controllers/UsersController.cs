@@ -10,11 +10,11 @@ namespace CityCare.Api.Controllers;
 [ApiController]
 [Route("users")]
 [Authorize]
-public sealed class UsersController : ControllerBase
+public sealed class UsersControllers : ControllerBase
 {
     private readonly CityCareDbContext _db;
 
-    public UsersController(CityCareDbContext db)
+    public UsersControllers(CityCareDbContext db)
     {
         _db = db;
     }

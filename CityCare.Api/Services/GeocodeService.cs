@@ -1,6 +1,10 @@
 using System.Globalization;
+using System.Linq;
+using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace CityCare.Api.Services;
 
@@ -12,7 +16,7 @@ public sealed class GeocodeService
     {
         _httpClient = httpClient;
 
-        // Nominatim exige un User-Agent (valeur "réelle", pas un UA vide).
+        // Nominatim exige un User-Agent (valeur "rï¿½elle", pas un UA vide).
         if (_httpClient.DefaultRequestHeaders.UserAgent.Count == 0)
         {
             _httpClient.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("CityCarePlus", "1.0"));
@@ -33,7 +37,7 @@ public sealed class GeocodeService
 
     public async Task<ReverseGeocodeResult?> ReverseGeocodeAsync(decimal lat, decimal lng, CancellationToken cancellationToken = default)
     {
-        // Forcer le point décimal (.) quoi qu’il arrive.
+        // Forcer le point dï¿½cimal (.) quoi quï¿½il arrive.
         var latStr = lat.ToString(CultureInfo.InvariantCulture);
         var lngStr = lng.ToString(CultureInfo.InvariantCulture);
 
@@ -47,7 +51,7 @@ public sealed class GeocodeService
         {
             // Nominatim renvoie souvent une explication dans le body (texte ou json).
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            // On retourne null => le controller fera 404, mais au moins tu verras l’erreur en debug en mettant un breakpoint ici.
+            // On retourne null => le controller fera 404, mais au moins tu verras lï¿½erreur en debug en mettant un breakpoint ici.
             return null;
         }
 
