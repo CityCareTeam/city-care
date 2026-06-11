@@ -12,6 +12,7 @@ public class CityCareDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Incident> Incidents => Set<Incident>();
     public DbSet<IncidentStatusHistory> IncidentStatusHistories => Set<IncidentStatusHistory>();
+    public DbSet<IncidentPhoto> IncidentPhotos => Set<IncidentPhoto>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,6 +84,41 @@ public class CityCareDbContext : DbContext
             entity.HasIndex(h => h.IncidentId);
             entity.HasIndex(h => h.ChangedByUserId);
             entity.HasIndex(h => h.ChangedAt);
+        });
+
+        modelBuilder.Entity<IncidentPhoto>(entity =>
+        {
+            entity.ToTable("incident_photos");
+
+            entity.HasKey(p => p.Id);
+
+            entity.Property(p => p.ObjectKey)
+                .IsRequired()
+                .HasMaxLength(512);
+
+            entity.Property(p => p.FileName)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.Property(p => p.ContentType)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(p => p.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne(p => p.Incident)
+                .WithMany()
+                .HasForeignKey(p => p.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(p => p.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(p => p.IncidentId);
+            entity.HasIndex(p => p.UploadedByUserId);
         });
     }
 }

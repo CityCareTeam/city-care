@@ -19,18 +19,29 @@ public sealed class IncidentsController : ControllerBase
     private readonly IncidentService _incidentService;
     private readonly CurrentUserService _currentUser;
     private readonly GeocodeService _geocodeService;
+    private readonly PhotoStorageService _photoStorage;
 
     public IncidentsController(
         CityCareDbContext db,
         IncidentService incidentService,
         CurrentUserService currentUser,
-        GeocodeService geocodeService)
+        GeocodeService geocodeService,
+        PhotoStorageService photoStorage)
     {
         _db = db;
         _incidentService = incidentService;
         _currentUser = currentUser;
         _geocodeService = geocodeService;
+        _photoStorage = photoStorage;
     }
+
+    private static readonly Dictionary<string, string> AllowedImageTypes = new()
+    {
+        [".jpg"]  = "image/jpeg",
+        [".jpeg"] = "image/jpeg",
+        [".png"]  = "image/png",
+        [".webp"] = "image/webp"
+    };
 
     // ─────────────────────────────────────────────────────────────
     // POST /incidents — Créer un signalement
@@ -338,6 +349,137 @@ public sealed class IncidentsController : ControllerBase
             updated_at = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
         });
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // GET /incidents/{id}/photos — Lister les photos d'un incident
+    // ─────────────────────────────────────────────────────────────
+    [HttpGet("{id:guid}/photos")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetPhotos(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var photos = await _db.IncidentPhotos
+            .AsNoTracking()
+            .Where(p => p.IncidentId == id)
+            .OrderBy(p => p.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var data = photos.Select(ToPhotoResponse).ToList();
+
+        return Ok(new { data });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // POST /incidents/{id}/photos — Upload d'une photo (multipart/form-data)
+    // ─────────────────────────────────────────────────────────────
+    [HttpPost("{id:guid}/photos")]
+    [Authorize]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> UploadPhoto(
+        Guid id,
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        var incident = await _db.Incidents
+            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+        if (incident is null)
+            return NotFound();
+
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var isAuthor = incident.AuthorUserId == actor.Id;
+        var isAgentOrAdmin = User.IsInRole("agent") || User.IsInRole("admin");
+        if (!isAuthor && !isAgentOrAdmin)
+            return Forbid();
+
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "Aucun fichier fourni." });
+
+        if (file.Length > _photoStorage.MaxFileSizeBytes)
+            return UnprocessableEntity(new { error = $"Fichier trop volumineux (max {_photoStorage.MaxFileSizeBytes / (1024 * 1024)} Mo)." });
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!AllowedImageTypes.TryGetValue(ext, out var expectedContentType))
+            return UnprocessableEntity(new { error = $"Extension non autorisée. Autorisées: {string.Join(", ", AllowedImageTypes.Keys)}." });
+
+        var objectKey = $"incidents/{id}/{Guid.NewGuid()}{ext}";
+        var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? expectedContentType : file.ContentType;
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await _photoStorage.UploadAsync(objectKey, stream, file.Length, contentType, cancellationToken);
+        }
+
+        var photo = new IncidentPhoto
+        {
+            Id               = Guid.NewGuid(),
+            IncidentId       = incident.Id,
+            UploadedByUserId = actor.Id,
+            ObjectKey        = objectKey,
+            FileName         = Path.GetFileName(file.FileName),
+            ContentType      = contentType,
+            SizeBytes        = file.Length,
+            CreatedAt        = DateTime.UtcNow
+        };
+
+        _db.IncidentPhotos.Add(photo);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return CreatedAtAction(nameof(GetPhotos), new { id = incident.Id }, ToPhotoResponse(photo));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // DELETE /incidents/{id}/photos/{photoId} — Supprimer une photo
+    //   (auteur de l'incident, agent ou admin)
+    // ─────────────────────────────────────────────────────────────
+    [HttpDelete("{id:guid}/photos/{photoId:guid}")]
+    [Authorize]
+    public async Task<IActionResult> DeletePhoto(Guid id, Guid photoId, CancellationToken cancellationToken)
+    {
+        var photo = await _db.IncidentPhotos
+            .Include(p => p.Incident)
+            .FirstOrDefaultAsync(p => p.Id == photoId && p.IncidentId == id, cancellationToken);
+
+        if (photo is null)
+            return NotFound();
+
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var isAuthor = photo.Incident.AuthorUserId == actor.Id;
+        var isAgentOrAdmin = User.IsInRole("agent") || User.IsInRole("admin");
+        if (!isAuthor && !isAgentOrAdmin)
+            return Forbid();
+
+        await _photoStorage.DeleteAsync(photo.ObjectKey, cancellationToken);
+
+        _db.IncidentPhotos.Remove(photo);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
+    private PhotoResponse ToPhotoResponse(IncidentPhoto p) => new()
+    {
+        Id               = p.Id,
+        IncidentId       = p.IncidentId,
+        Url              = _photoStorage.BuildPublicUrl(p.ObjectKey),
+        FileName         = p.FileName,
+        ContentType      = p.ContentType,
+        SizeBytes        = p.SizeBytes,
+        UploadedByUserId = p.UploadedByUserId,
+        CreatedAt        = new DateTimeOffset(DateTime.SpecifyKind(p.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
+    };
 
     // ─────────────────────────────────────────────────────────────
     // DELETE /incidents/{id} — Supprimer un incident (admin)

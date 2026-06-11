@@ -6,6 +6,7 @@ using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Minio;
 
 // Désactiver le mapping automatique des claims JWT
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
@@ -30,6 +31,17 @@ builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<GeocodeService>();
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<KeycloakService>();
+
+// Stockage de fichiers (MinIO / S3)
+var minioOptions = builder.Configuration.GetSection("Minio").Get<MinioOptions>() ?? new MinioOptions();
+builder.Services.AddSingleton(minioOptions);
+builder.Services.AddSingleton<IMinioClient>(_ =>
+    new MinioClient()
+        .WithEndpoint(minioOptions.Endpoint)
+        .WithCredentials(minioOptions.AccessKey, minioOptions.SecretKey)
+        .WithSSL(minioOptions.UseSSL)
+        .Build());
+builder.Services.AddScoped<PhotoStorageService>();
 
 // Authentification
 var keycloakUrl = builder.Configuration["Keycloak:Url"] ?? "http://localhost:8080";
