@@ -44,14 +44,18 @@ builder.Services.AddSingleton<IMinioClient>(_ =>
 builder.Services.AddScoped<PhotoStorageService>();
 
 // Authentification
-var keycloakUrl = builder.Configuration["Keycloak:Url"] ?? "http://localhost:8080";
-var keycloakRealm = builder.Configuration["Keycloak:Realm"] ?? "CityCare";
-var keycloakAuthority = $"{keycloakUrl.TrimEnd('/')}/realms/{keycloakRealm}";
+var keycloakUrl = builder.Configuration["Keycloak:Url"];
+var keycloakRealm = builder.Configuration["Keycloak:Realm"];
+
+if (string.IsNullOrWhiteSpace(keycloakUrl) || string.IsNullOrWhiteSpace(keycloakRealm))
+    throw new InvalidOperationException("Keycloak:Url et Keycloak:Realm doivent être configurés.");
+
+var keycloakIssuer = $"{keycloakUrl.TrimEnd('/')}/realms/{keycloakRealm}";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = keycloakAuthority;
+        options.Authority = keycloakIssuer;
         options.RequireHttpsMetadata = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
@@ -61,7 +65,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidIssuers = new[]
             {
-                keycloakAuthority,
+                keycloakIssuer,
                 $"http://localhost:8080/realms/{keycloakRealm}",
                 $"http://keycloak:8080/realms/{keycloakRealm}"
             },
