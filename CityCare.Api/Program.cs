@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using CityCare.Api.Hubs;
 using CityCare.Api.Services;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,6 +31,9 @@ builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<GeocodeService>();
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<KeycloakService>();
+
+// SignalR — chat temps réel (Lot 2)
+builder.Services.AddSignalR();
 
 // Authentification
 var keycloakUrl = builder.Configuration["Keycloak:Url"];
@@ -81,6 +85,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
 
                 return Task.CompletedTask;
+            },
+
+            // SignalR transmet le token JWT en query string (?access_token=...)
+            // car les WebSockets ne supportent pas les headers HTTP classiques.
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs/incident-chat"))
+                    context.Token = accessToken;
+
+                return Task.CompletedTask;
             }
         };
     });
@@ -100,7 +117,9 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
-
 app.MapControllers();
+
+// Point de connexion WebSocket du chat
+app.MapHub<IncidentChatHub>("/hubs/incident-chat");
 
 app.Run();

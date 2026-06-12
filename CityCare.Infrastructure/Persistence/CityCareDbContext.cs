@@ -1,4 +1,4 @@
-using CityCare.Core.Entities;
+﻿using CityCare.Core.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace CityCare.Infrastructure.Persistence;
@@ -12,6 +12,11 @@ public class CityCareDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Incident> Incidents => Set<Incident>();
     public DbSet<IncidentStatusHistory> IncidentStatusHistories => Set<IncidentStatusHistory>();
+
+    // ─── AJOUT Lots 2 & 3 ───────────────────────────────────────────
+    public DbSet<IncidentMessage> IncidentMessages => Set<IncidentMessage>();
+    public DbSet<UserNotificationSettings> UserNotificationSettings => Set<UserNotificationSettings>();
+    // ────────────────────────────────────────────────────────────────
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -84,5 +89,71 @@ public class CityCareDbContext : DbContext
             entity.HasIndex(h => h.ChangedByUserId);
             entity.HasIndex(h => h.ChangedAt);
         });
+
+        // ─── AJOUT Lot 2 : messages d'incident ──────────────────────
+        modelBuilder.Entity<IncidentMessage>(entity =>
+        {
+            entity.ToTable("incident_messages");
+
+            entity.HasKey(m => m.Id);
+
+            entity.Property(m => m.AuthorRole)
+                .HasMaxLength(50);
+
+            entity.Property(m => m.Content)
+                .IsRequired()
+                .HasMaxLength(2000);
+
+            entity.Property(m => m.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne<Incident>()
+                .WithMany()
+                .HasForeignKey(m => m.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(m => m.AuthorUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(m => m.IncidentId);
+            entity.HasIndex(m => m.CreatedAt);
+            entity.HasIndex(m => m.AuthorUserId);
+        });
+
+        // ─── AJOUT Lot 3 : préférences de notification ──────────────
+        modelBuilder.Entity<UserNotificationSettings>(entity =>
+        {
+            entity.ToTable("user_notification_settings");
+
+            entity.HasKey(s => s.Id);
+
+            entity.Property(s => s.EmailEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.PushEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.FollowedTypes)
+                .IsRequired()
+                .HasDefaultValue("");
+
+            entity.Property(s => s.CreatedAt)
+                .IsRequired();
+
+            entity.Property(s => s.UpdatedAt)
+                .IsRequired();
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(s => s.UserId).IsUnique();
+        });
+        // ────────────────────────────────────────────────────────────
     }
 }
