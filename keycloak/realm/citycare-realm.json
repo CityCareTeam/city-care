@@ -414,7 +414,7 @@
     "requiredActions" : [ ],
     "realmRoles" : [ "default-roles-citycare" ],
     "clientRoles" : {
-      "realm-management" : [ "manage-users", "view-users", "query-users" ]
+      "realm-management" : [ "manage-users", "view-users", "query-users", "view-realm" ]
     },
     "notBefore" : 0,
     "groups" : [ ]
