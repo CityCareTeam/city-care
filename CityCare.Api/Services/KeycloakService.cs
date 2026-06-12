@@ -131,6 +131,73 @@ public class KeycloakService
         _logger.LogInformation("Mot de passe mis à jour pour l'utilisateur Keycloak {KeycloakId}", keycloakId);
     }
 
+    public async Task AssignRealmRoleAsync(string keycloakId, string roleName)
+    {
+        var adminToken = await GetAdminTokenAsync();
+        var realm = _configuration["Keycloak:Realm"];
+        var keycloakUrl = _configuration["Keycloak:Url"];
+        var roleMappingsUrl = $"{keycloakUrl}/admin/realms/{realm}/users/{keycloakId}/role-mappings/realm";
+        var appRoleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "citizen", "agent", "admin" };
+
+        // Récupérer les rôles actuels
+        var getCurrentReq = new HttpRequestMessage(HttpMethod.Get, roleMappingsUrl);
+        getCurrentReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var getCurrentResp = await _httpClient.SendAsync(getCurrentReq);
+        var currentRolesJson = await getCurrentResp.Content.ReadAsStringAsync();
+        if (!getCurrentResp.IsSuccessStatusCode)
+            throw new Exception($"Impossible de récupérer les rôles de l'utilisateur {keycloakId}: {(int)getCurrentResp.StatusCode} - {currentRolesJson}");
+
+        // Identifier les rôles app à retirer
+        using var currentDoc = JsonDocument.Parse(currentRolesJson);
+        var rolesToRemove = currentDoc.RootElement.EnumerateArray()
+            .Where(r => appRoleNames.Contains(r.GetProperty("name").GetString()!))
+            .Select(r => new { id = r.GetProperty("id").GetString(), name = r.GetProperty("name").GetString() })
+            .ToList();
+
+        // Retirer les rôles app existants
+        if (rolesToRemove.Count > 0)
+        {
+            var removeReq = new HttpRequestMessage(HttpMethod.Delete, roleMappingsUrl)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(rolesToRemove), Encoding.UTF8, "application/json")
+            };
+            removeReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+            await _httpClient.SendAsync(removeReq);
+        }
+
+        // Récupérer la représentation du nouveau rôle
+        var getRoleReq = new HttpRequestMessage(HttpMethod.Get, $"{keycloakUrl}/admin/realms/{realm}/roles/{roleName}");
+        getRoleReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var getRoleResp = await _httpClient.SendAsync(getRoleReq);
+
+        if (!getRoleResp.IsSuccessStatusCode)
+        {
+            var errorBody = await getRoleResp.Content.ReadAsStringAsync();
+            throw new Exception($"Rôle '{roleName}' introuvable dans Keycloak: {(int)getRoleResp.StatusCode} - {errorBody}");
+        }
+
+        using var roleDoc = JsonDocument.Parse(await getRoleResp.Content.ReadAsStringAsync());
+        var roleId = roleDoc.RootElement.GetProperty("id").GetString();
+        var fetchedRoleName = roleDoc.RootElement.GetProperty("name").GetString();
+
+        // Assigner le nouveau rôle
+        var assignPayload = new[] { new { id = roleId, name = fetchedRoleName } };
+        var assignReq = new HttpRequestMessage(HttpMethod.Post, roleMappingsUrl)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(assignPayload), Encoding.UTF8, "application/json")
+        };
+        assignReq.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+        var assignResp = await _httpClient.SendAsync(assignReq);
+
+        if (!assignResp.IsSuccessStatusCode)
+        {
+            var err = await assignResp.Content.ReadAsStringAsync();
+            throw new Exception($"Erreur assignation rôle Keycloak: {(int)assignResp.StatusCode} - {err}");
+        }
+
+        _logger.LogInformation("Rôle '{Role}' assigné à l'utilisateur Keycloak {KeycloakId}", roleName, keycloakId);
+    }
+
     public async Task DeleteUserAsync(string keycloakId)
     {
         var adminToken = await GetAdminTokenAsync();
