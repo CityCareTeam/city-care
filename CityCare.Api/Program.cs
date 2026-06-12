@@ -28,6 +28,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<GeocodeService>();
+builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<KeycloakService>();
 
 // CORS — doit être enregistré AVANT l'authentification
@@ -46,10 +47,18 @@ builder.Services.AddCors(options =>
 });
 
 // Authentification
+var keycloakUrl = builder.Configuration["Keycloak:Url"];
+var keycloakRealm = builder.Configuration["Keycloak:Realm"];
+
+if (string.IsNullOrWhiteSpace(keycloakUrl) || string.IsNullOrWhiteSpace(keycloakRealm))
+    throw new InvalidOperationException("Keycloak:Url et Keycloak:Realm doivent être configurés.");
+
+var keycloakIssuer = $"{keycloakUrl}/realms/{keycloakRealm}";
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
-        options.Authority = "http://localhost:8080/realms/CityCare";
+        options.Authority = keycloakIssuer;
         options.RequireHttpsMetadata = false;
 
         options.TokenValidationParameters = new TokenValidationParameters
@@ -57,9 +66,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer   = true,
             ValidateAudience = false,
             ValidateLifetime = true,
-            ValidIssuer      = "http://localhost:8080/realms/CityCare",
-            NameClaimType    = "preferred_username",
-            RoleClaimType    = ClaimTypes.Role
+            ValidIssuer = keycloakIssuer,
+            NameClaimType = "preferred_username",
+            RoleClaimType = ClaimTypes.Role
         };
 
         options.Events = new JwtBearerEvents

@@ -1,4 +1,4 @@
-﻿namespace CityCare.Api.Dtos.Auth;
+﻿namespace CityCare.Api.Models.Dtos.Auth;
 
 public sealed record AuthLoginResponseDto(
     string AccessToken,
