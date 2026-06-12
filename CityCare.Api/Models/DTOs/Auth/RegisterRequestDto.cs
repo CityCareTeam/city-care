@@ -16,12 +16,14 @@ public sealed record RegisterRequestDto(
     [MinLength(8, ErrorMessage = "Le mot de passe doit contenir au moins 8 caractères")]
     string Password,
     
-    [Required(ErrorMessage = "Le nom d'utilisateur est requis")] 
-    [MaxLength(50, ErrorMessage = "Le nom d'utilisateur ne peut pas dépasser 50 caractères")]
+    [Required(ErrorMessage = "Le nom est requis")]
+    [MaxLength(50, ErrorMessage = "Le nom ne peut pas dépasser 50 caractères")]
+    [RegularExpression(@"^[\p{L}\s\-'.]+$", ErrorMessage = "Le nom ne peut contenir que des lettres, espaces, tirets ou apostrophes.")]
     string LastName,
-    
+
     [Required(ErrorMessage = "Le prénom est requis")]
     [MaxLength(50, ErrorMessage = "Le prénom ne peut pas dépasser 50 caractères")]
+    [RegularExpression(@"^[\p{L}\s\-'.]+$", ErrorMessage = "Le prénom ne peut contenir que des lettres, espaces, tirets ou apostrophes.")]
     string FirstName
     
 

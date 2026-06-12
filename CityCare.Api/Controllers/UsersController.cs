@@ -89,7 +89,16 @@ public sealed class UsersController : ControllerBase
             return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
         if (dto.Email != null || dto.Username != null || dto.FirstName != null || dto.LastName != null)
-            await _keycloak.UpdateUserAsync(user.KeycloakId, dto.Email, dto.Username, dto.FirstName, dto.LastName);
+        {
+            try
+            {
+                await _keycloak.UpdateUserAsync(user.KeycloakId, dto.Email, dto.Username, dto.FirstName, dto.LastName);
+            }
+            catch (Exception ex) when (ex.Message.Contains("400"))
+            {
+                return BadRequest(new { error = "Les informations saisies contiennent des caractères invalides." });
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(dto.NewPassword))
             await _keycloak.UpdatePasswordAsync(user.KeycloakId, dto.NewPassword);
