@@ -90,10 +90,12 @@ public sealed class IncidentMessagesController : ControllerBase
             .Group(IncidentChatHub.GroupName(incidentId))
             .SendAsync("ReceiveMessage", response, cancellationToken);
 
-        var notifTitle = "Nouveau message";
-        var notifBody  = $"Nouveau message sur le signalement : {incident.AddressLabel}";
+        // Routing basé sur author.MainRole (synced depuis Keycloak via DB),
+        // pas sur le JWT live qui peut contenir plusieurs rôles (ex. compte test citizen+agent).
+        var notifPushTitle = "Nouveau message";
+        var notifPushBody  = $"Nouveau message sur le signalement : {incident.AddressLabel}";
 
-        if (role is "citizen")
+        if (author.MainRole is "citizen")
         {
             // Citoyen a écrit → notifier tous les agents/admins.
             var agents = await (
@@ -106,25 +108,24 @@ public sealed class IncidentMessagesController : ControllerBase
                     u.Id,
                     u.DevicePushToken,
                     InAppOk = s == null || s.InAppMessagesEnabled,
-                    PushOk  = u.DevicePushToken != null && (s == null || (s.PushMessagesEnabled))
+                    PushOk  = u.DevicePushToken != null && (s == null || s.PushMessagesEnabled)
                 }
             ).ToListAsync(cancellationToken);
 
             var inAppIds = agents.Where(a => a.InAppOk).Select(a => a.Id).ToList();
             if (inAppIds.Count > 0)
-                await _notificationService.CreateBulkAsync(
-                    inAppIds, title: notifTitle, body: notifBody,
-                    type: "new_message", incidentId: incident.Id,
-                    cancellationToken: cancellationToken);
+                await _notificationService.UpsertMessageNotifBulkAsync(
+                    inAppIds, addressLabel: incident.AddressLabel,
+                    incidentId: incident.Id, cancellationToken: cancellationToken);
 
             var pushTokens = agents.Where(a => a.PushOk).Select(a => a.DevicePushToken!).ToList();
             if (pushTokens.Count > 0)
-                _ = _expoPush.SendBatchAsync(pushTokens, notifTitle, notifBody,
+                _ = _expoPush.SendBatchAsync(pushTokens, notifPushTitle, notifPushBody,
                     data: new { incident_id = incident.Id });
         }
         else
         {
-            // Agent/admin a écrit → notifier le citoyen auteur de l'incident.
+            // Agent/admin a écrit → notifier le citoyen auteur de l'incident (pas l'expéditeur lui-même).
             if (incident.AuthorUserId != author.Id)
             {
                 var citizenPrefs = await _db.UserNotificationSettings
@@ -133,15 +134,14 @@ public sealed class IncidentMessagesController : ControllerBase
                     .Select(s => new { s.InAppMessagesEnabled, s.PushMessagesEnabled })
                     .FirstOrDefaultAsync(cancellationToken);
 
-                // Pas de prefs = défaut tout activé.
                 var inAppOk = citizenPrefs?.InAppMessagesEnabled ?? true;
                 var pushOk  = citizenPrefs?.PushMessagesEnabled  ?? true;
 
                 if (inAppOk)
-                    await _notificationService.CreateAsync(
+                    await _notificationService.UpsertMessageNotifAsync(
                         userId: incident.AuthorUserId,
-                        title: notifTitle, body: notifBody,
-                        type: "new_message", incidentId: incident.Id,
+                        addressLabel: incident.AddressLabel,
+                        incidentId: incident.Id,
                         cancellationToken: cancellationToken);
 
                 if (pushOk)
@@ -153,7 +153,7 @@ public sealed class IncidentMessagesController : ControllerBase
                         .FirstOrDefaultAsync(cancellationToken);
 
                     if (!string.IsNullOrWhiteSpace(citizenToken))
-                        _ = _expoPush.SendAsync(citizenToken, notifTitle, notifBody,
+                        _ = _expoPush.SendAsync(citizenToken, notifPushTitle, notifPushBody,
                             data: new { incident_id = incident.Id });
                 }
             }
@@ -198,18 +198,6 @@ public sealed class IncidentMessagesController : ControllerBase
 
     /// Résout le rôle applicatif de l'auteur depuis les claims Keycloak.
     /// Priorité : claim "mainRole" (valeur explicite Keycloak) > IsInRole.
-    private static string? ResolveRole(ClaimsPrincipal user)
-    {
-        var mainRole = user.FindFirst("mainRole")?.Value?.ToLowerInvariant();
-        if (!string.IsNullOrWhiteSpace(mainRole))
-            return mainRole;
-
-        foreach (var role in new[] { "admin", "agent", "citizen" })
-        {
-            if (user.IsInRole(role))
-                return role;
-        }
-
-        return null;
-    }
+    private static string? ResolveRole(ClaimsPrincipal user) =>
+        new[] { "admin", "agent", "citizen" }.FirstOrDefault(user.IsInRole);
 }

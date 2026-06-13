@@ -23,17 +23,21 @@ public sealed class NotificationResponse
     [JsonPropertyName("is_read")]
     public bool IsRead { get; set; }
 
+    [JsonPropertyName("message_count")]
+    public int? MessageCount { get; set; }
+
     [JsonPropertyName("created_at")]
     public DateTimeOffset CreatedAt { get; set; }
 
     public static NotificationResponse From(Notification n) => new()
     {
-        Id         = n.Id,
-        Title      = n.Title,
-        Body       = n.Body,
-        Type       = n.Type,
-        IncidentId = n.IncidentId,
-        IsRead     = n.IsRead,
-        CreatedAt  = new DateTimeOffset(DateTime.SpecifyKind(n.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
+        Id           = n.Id,
+        Title        = n.Title,
+        Body         = n.Body,
+        Type         = n.Type,
+        IncidentId   = n.IncidentId,
+        IsRead       = n.IsRead,
+        MessageCount = n.MessageCount,
+        CreatedAt    = new DateTimeOffset(DateTime.SpecifyKind(n.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
     };
 }

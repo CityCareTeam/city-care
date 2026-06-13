@@ -203,12 +203,21 @@ public class CityCareDbContext : DbContext
                 .IsRequired()
                 .HasDefaultValue(false);
 
+            entity.Property(n => n.MessageCount)
+                .IsRequired(false);
+
             entity.Property(n => n.CreatedAt)
                 .IsRequired();
 
             entity.HasOne<User>()
                 .WithMany()
                 .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Incident>()
+                .WithMany()
+                .HasForeignKey(n => n.IncidentId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(n => n.UserId);

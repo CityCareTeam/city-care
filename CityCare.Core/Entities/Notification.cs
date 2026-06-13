@@ -18,5 +18,9 @@ public class Notification
     public Guid? IncidentId { get; set; }
 
     public bool IsRead { get; set; } = false;
+
+    /// Nombre de messages groupés (uniquement pour type "new_message", null sinon).
+    public int? MessageCount { get; set; }
+
     public DateTime CreatedAt { get; set; }
 }
