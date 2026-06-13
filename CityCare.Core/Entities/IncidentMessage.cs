@@ -18,6 +18,9 @@ public class IncidentMessage
     /// Rôle de l'auteur au moment du post : citizen / agent / admin.
     public string? AuthorRole { get; set; }
 
+    /// Nom d'affichage de l'auteur au moment du post (dénormalisé depuis User.DisplayName).
+    public string? AuthorName { get; set; }
+
     public string Content { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; }

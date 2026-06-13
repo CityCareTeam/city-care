@@ -11,6 +11,15 @@ public sealed class NotificationSettingsResponse
     [JsonPropertyName("push_enabled")]
     public bool PushEnabled { get; set; }
 
+    [JsonPropertyName("in_app_incidents_enabled")]
+    public bool InAppIncidentsEnabled { get; set; }
+
+    [JsonPropertyName("in_app_messages_enabled")]
+    public bool InAppMessagesEnabled { get; set; }
+
+    [JsonPropertyName("push_messages_enabled")]
+    public bool PushMessagesEnabled { get; set; }
+
     [JsonPropertyName("followed_incident_types")]
     public IReadOnlyList<string> FollowedIncidentTypes { get; set; } = [];
 
@@ -19,8 +28,11 @@ public sealed class NotificationSettingsResponse
 
     public static NotificationSettingsResponse From(UserNotificationSettings s) => new()
     {
-        EmailEnabled = s.EmailEnabled,
-        PushEnabled = s.PushEnabled,
+        EmailEnabled          = s.EmailEnabled,
+        PushEnabled           = s.PushEnabled,
+        InAppIncidentsEnabled = s.InAppIncidentsEnabled,
+        InAppMessagesEnabled  = s.InAppMessagesEnabled,
+        PushMessagesEnabled   = s.PushMessagesEnabled,
         FollowedIncidentTypes = string.IsNullOrWhiteSpace(s.FollowedTypes)
             ? []
             : s.FollowedTypes.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),

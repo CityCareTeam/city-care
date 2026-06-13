@@ -17,6 +17,9 @@ public sealed class MessageResponse
     [JsonPropertyName("author_role")]
     public string? AuthorRole { get; set; }
 
+    [JsonPropertyName("author_name")]
+    public string? AuthorName { get; set; }
+
     [JsonPropertyName("content")]
     public string Content { get; set; } = null!;
 
@@ -28,8 +31,9 @@ public sealed class MessageResponse
         Id = m.Id,
         IncidentId = m.IncidentId,
         AuthorUserId = m.AuthorUserId,
-        AuthorRole = m.AuthorRole,
-        Content = m.Content,
+        AuthorRole   = m.AuthorRole,
+        AuthorName   = m.AuthorName,
+        Content      = m.Content,
         CreatedAt = new DateTimeOffset(DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
     };
 }

@@ -95,11 +95,15 @@ public sealed class IncidentsController : ControllerBase
                 : null
         };
 
-        // Notif in-app : tout le monde sauf le créateur.
-        var allUserIds = await _db.Users
-            .Where(u => u.Id != authorUserId)
-            .Select(u => u.Id)
-            .ToListAsync(cancellationToken);
+        // Notif in-app : tout le monde sauf le créateur, avec InAppIncidentsEnabled.
+        var allUserIds = await (
+            from u in _db.Users
+            where u.Id != authorUserId
+            join s in _db.UserNotificationSettings on u.Id equals s.UserId into settings
+            from s in settings.DefaultIfEmpty()
+            where s == null || s.InAppIncidentsEnabled
+            select u.Id
+        ).ToListAsync(cancellationToken);
 
         // Label commun pour in-app et push.
         var incidentTypeStr = IncidentService.ToSnakeCase(incident.Type);
@@ -331,53 +335,44 @@ public sealed class IncidentsController : ControllerBase
 
         await _db.SaveChangesAsync(cancellationToken);
 
-        // Notifier l'auteur du signalement du changement de statut (in-app).
+        // Notifier l'auteur du changement de statut (in-app) si préférence activée.
         var statusLabel = IncidentService.ToSnakeCase(nextStatus) switch
         {
             "in_progress" => "en cours de traitement",
             "resolved"    => "résolu",
             _             => IncidentService.ToSnakeCase(nextStatus)
         };
-        await _notificationService.CreateAsync(
-            userId:     incident.AuthorUserId,
-            title:      "Mise à jour de votre signalement",
-            body:       $"Votre signalement est maintenant {statusLabel}.",
-            type:       "incident_status_changed",
-            incidentId: incident.Id,
-            cancellationToken: cancellationToken);
 
-        // Push au citoyen auteur si push activé et token disponible.
-        var author = await _db.Users
+        var authorPrefs = await _db.UserNotificationSettings
             .AsNoTracking()
-            .Where(u => u.Id == incident.AuthorUserId && u.DevicePushToken != null)
-            .Join(_db.UserNotificationSettings.Where(s => s.PushEnabled),
-                  u => u.Id, s => s.UserId,
-                  (u, _) => u.DevicePushToken!)
+            .Where(s => s.UserId == incident.AuthorUserId)
+            .Select(s => new { s.InAppIncidentsEnabled, s.PushEnabled })
             .FirstOrDefaultAsync(cancellationToken);
 
-        // Aussi envoyer si l'auteur n'a pas encore de préférences (défaut = push activé).
-        if (author is null)
-        {
-            var hasSettings = await _db.UserNotificationSettings
-                .AnyAsync(s => s.UserId == incident.AuthorUserId, cancellationToken);
+        if (authorPrefs?.InAppIncidentsEnabled ?? true)
+            await _notificationService.CreateAsync(
+                userId:     incident.AuthorUserId,
+                title:      "Mise à jour de votre signalement",
+                body:       $"Votre signalement est maintenant {statusLabel}.",
+                type:       "incident_status_changed",
+                incidentId: incident.Id,
+                cancellationToken: cancellationToken);
 
-            if (!hasSettings)
-            {
-                author = await _db.Users
-                    .AsNoTracking()
-                    .Where(u => u.Id == incident.AuthorUserId)
-                    .Select(u => u.DevicePushToken)
-                    .FirstOrDefaultAsync(cancellationToken);
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(author))
+        // Push au citoyen auteur si push activé et token disponible.
+        if (authorPrefs?.PushEnabled ?? true)
         {
-            _ = _expoPush.SendAsync(
-                author,
-                title: "Mise à jour de votre signalement",
-                body:  $"Votre signalement est maintenant {statusLabel}.",
-                data:  new { incident_id = incident.Id });
+            var authorToken = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.Id == incident.AuthorUserId)
+                .Select(u => u.DevicePushToken)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(authorToken))
+                _ = _expoPush.SendAsync(
+                    authorToken,
+                    title: "Mise à jour de votre signalement",
+                    body:  $"Votre signalement est maintenant {statusLabel}.",
+                    data:  new { incident_id = incident.Id });
         }
 
         return Ok(new

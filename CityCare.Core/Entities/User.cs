@@ -9,6 +9,9 @@ public class User
     /// <summary>Rôle principal synced depuis le claim Keycloak "mainRole" à chaque connexion.</summary>
     public string? MainRole { get; set; }
 
+    /// <summary>Prénom + nom (ou username) syncé depuis les claims Keycloak à chaque connexion.</summary>
+    public string? DisplayName { get; set; }
+
     /// <summary>Token Expo Push — null tant que l'app mobile n'a pas appelé PATCH /users/me/push-token.</summary>
     public string? DevicePushToken { get; set; }
 

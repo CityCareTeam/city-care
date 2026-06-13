@@ -51,15 +51,26 @@ public sealed class CurrentUserService
 
         var user = await GetOrCreateByKeycloakIdAsync(sub, cancellationToken);
 
-        // Sync du rôle principal depuis le JWT (mainRole ou premier rôle métier).
+        // Sync du rôle principal depuis le JWT.
         var mainRole = principal.FindFirstValue("mainRole")
             ?? principal.FindAll(ClaimTypes.Role)
                         .Select(c => c.Value)
                         .FirstOrDefault(r => r is "citizen" or "agent" or "admin");
 
-        if (mainRole is not null && user.MainRole != mainRole)
+        // Sync du nom d'affichage : given_name + family_name, sinon preferred_username.
+        var given    = principal.FindFirstValue("given_name");
+        var family   = principal.FindFirstValue("family_name");
+        var username = principal.FindFirstValue("preferred_username");
+        var displayName = !string.IsNullOrWhiteSpace(given)
+            ? (string.IsNullOrWhiteSpace(family) ? given : $"{given} {family}")
+            : username;
+
+        var changed = false;
+        if (mainRole is not null && user.MainRole != mainRole)   { user.MainRole    = mainRole;   changed = true; }
+        if (displayName is not null && user.DisplayName != displayName) { user.DisplayName = displayName; changed = true; }
+
+        if (changed)
         {
-            user.MainRole  = mainRole;
             user.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync(cancellationToken);
         }

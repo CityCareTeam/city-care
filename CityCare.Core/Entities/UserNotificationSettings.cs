@@ -19,6 +19,15 @@ public class UserNotificationSettings
 
     public bool PushEnabled { get; set; } = true;
 
+    /// Notifs in-app pour les signalements (nouveau + changement de statut) (défaut : activé).
+    public bool InAppIncidentsEnabled { get; set; } = true;
+
+    /// Notifs in-app pour les nouveaux messages (défaut : activé).
+    public bool InAppMessagesEnabled { get; set; } = true;
+
+    /// Notifs push pour les nouveaux messages (défaut : activé).
+    public bool PushMessagesEnabled { get; set; } = true;
+
     /// Types d'incidents suivis, en CSV snake_case. Vide = aucun.
     public string FollowedTypes { get; set; } = string.Empty;
 

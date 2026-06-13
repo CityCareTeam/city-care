@@ -23,15 +23,21 @@ public sealed class IncidentMessagesController : ControllerBase
     private readonly CityCareDbContext _db;
     private readonly CurrentUserService _currentUser;
     private readonly IHubContext<IncidentChatHub> _hub;
+    private readonly NotificationService _notificationService;
+    private readonly ExpoPushService _expoPush;
 
     public IncidentMessagesController(
         CityCareDbContext db,
         CurrentUserService currentUser,
-        IHubContext<IncidentChatHub> hub)
+        IHubContext<IncidentChatHub> hub,
+        NotificationService notificationService,
+        ExpoPushService expoPush)
     {
         _db = db;
         _currentUser = currentUser;
         _hub = hub;
+        _notificationService = notificationService;
+        _expoPush = expoPush;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -40,31 +46,38 @@ public sealed class IncidentMessagesController : ControllerBase
     [HttpPost]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Post(
         Guid incidentId,
         [FromBody] CreateMessageRequest request,
         CancellationToken cancellationToken)
     {
-        var incidentExists = await _db.Incidents
-            .AsNoTracking()
-            .AnyAsync(i => i.Id == incidentId, cancellationToken);
-
-        if (!incidentExists)
-            return NotFound(new { error = "Incident introuvable." });
-
         var author = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
         if (author is null)
             return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
+        var incident = await _db.Incidents
+            .AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == incidentId, cancellationToken);
+
+        if (incident is null)
+            return NotFound(new { error = "Incident introuvable." });
+
+        // Un citoyen ne peut poster que sur son propre signalement.
+        var role = ResolveRole(User);
+        if (role is "citizen" && incident.AuthorUserId != author.Id)
+            return Forbid();
+
         var message = new IncidentMessage
         {
-            Id = Guid.NewGuid(),
-            IncidentId = incidentId,
+            Id           = Guid.NewGuid(),
+            IncidentId   = incidentId,
             AuthorUserId = author.Id,
-            AuthorRole = ResolveRole(User),
-            Content = request.Content,
-            CreatedAt = DateTime.UtcNow
+            AuthorRole   = role,
+            AuthorName   = author.DisplayName,
+            Content      = request.Content,
+            CreatedAt    = DateTime.UtcNow
         };
 
         _db.IncidentMessages.Add(message);
@@ -77,6 +90,75 @@ public sealed class IncidentMessagesController : ControllerBase
             .Group(IncidentChatHub.GroupName(incidentId))
             .SendAsync("ReceiveMessage", response, cancellationToken);
 
+        var notifTitle = "Nouveau message";
+        var notifBody  = $"Nouveau message sur le signalement : {incident.AddressLabel}";
+
+        if (role is "citizen")
+        {
+            // Citoyen a écrit → notifier tous les agents/admins.
+            var agents = await (
+                from u in _db.Users
+                where (u.MainRole == "agent" || u.MainRole == "admin") && u.Id != author.Id
+                join s in _db.UserNotificationSettings on u.Id equals s.UserId into settings
+                from s in settings.DefaultIfEmpty()
+                select new
+                {
+                    u.Id,
+                    u.DevicePushToken,
+                    InAppOk = s == null || s.InAppMessagesEnabled,
+                    PushOk  = u.DevicePushToken != null && (s == null || (s.PushMessagesEnabled))
+                }
+            ).ToListAsync(cancellationToken);
+
+            var inAppIds = agents.Where(a => a.InAppOk).Select(a => a.Id).ToList();
+            if (inAppIds.Count > 0)
+                await _notificationService.CreateBulkAsync(
+                    inAppIds, title: notifTitle, body: notifBody,
+                    type: "new_message", incidentId: incident.Id,
+                    cancellationToken: cancellationToken);
+
+            var pushTokens = agents.Where(a => a.PushOk).Select(a => a.DevicePushToken!).ToList();
+            if (pushTokens.Count > 0)
+                _ = _expoPush.SendBatchAsync(pushTokens, notifTitle, notifBody,
+                    data: new { incident_id = incident.Id });
+        }
+        else
+        {
+            // Agent/admin a écrit → notifier le citoyen auteur de l'incident.
+            if (incident.AuthorUserId != author.Id)
+            {
+                var citizenPrefs = await _db.UserNotificationSettings
+                    .AsNoTracking()
+                    .Where(s => s.UserId == incident.AuthorUserId)
+                    .Select(s => new { s.InAppMessagesEnabled, s.PushMessagesEnabled })
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                // Pas de prefs = défaut tout activé.
+                var inAppOk = citizenPrefs?.InAppMessagesEnabled ?? true;
+                var pushOk  = citizenPrefs?.PushMessagesEnabled  ?? true;
+
+                if (inAppOk)
+                    await _notificationService.CreateAsync(
+                        userId: incident.AuthorUserId,
+                        title: notifTitle, body: notifBody,
+                        type: "new_message", incidentId: incident.Id,
+                        cancellationToken: cancellationToken);
+
+                if (pushOk)
+                {
+                    var citizenToken = await _db.Users
+                        .AsNoTracking()
+                        .Where(u => u.Id == incident.AuthorUserId)
+                        .Select(u => u.DevicePushToken)
+                        .FirstOrDefaultAsync(cancellationToken);
+
+                    if (!string.IsNullOrWhiteSpace(citizenToken))
+                        _ = _expoPush.SendAsync(citizenToken, notifTitle, notifBody,
+                            data: new { incident_id = incident.Id });
+                }
+            }
+        }
+
         return CreatedAtAction(nameof(GetAll), new { incidentId }, response);
     }
 
@@ -85,15 +167,25 @@ public sealed class IncidentMessagesController : ControllerBase
     // ─────────────────────────────────────────────────────────────
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetAll(Guid incidentId, CancellationToken cancellationToken)
     {
-        var incidentExists = await _db.Incidents
-            .AsNoTracking()
-            .AnyAsync(i => i.Id == incidentId, cancellationToken);
+        var currentUser = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (currentUser is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
-        if (!incidentExists)
+        var incident = await _db.Incidents
+            .AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == incidentId, cancellationToken);
+
+        if (incident is null)
             return NotFound(new { error = "Incident introuvable." });
+
+        // Un citoyen ne peut lire que les messages de son propre signalement.
+        var role = ResolveRole(User);
+        if (role is "citizen" && incident.AuthorUserId != currentUser.Id)
+            return Forbid();
 
         var messages = await _db.IncidentMessages
             .AsNoTracking()
@@ -105,14 +197,19 @@ public sealed class IncidentMessagesController : ControllerBase
     }
 
     /// Résout le rôle applicatif de l'auteur depuis les claims Keycloak.
+    /// Priorité : claim "mainRole" (valeur explicite Keycloak) > IsInRole.
     private static string? ResolveRole(ClaimsPrincipal user)
     {
+        var mainRole = user.FindFirst("mainRole")?.Value?.ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(mainRole))
+            return mainRole;
+
         foreach (var role in new[] { "admin", "agent", "citizen" })
         {
             if (user.IsInRole(role))
                 return role;
         }
 
-        return user.FindFirst("mainRole")?.Value?.ToLowerInvariant();
+        return null;
     }
 }

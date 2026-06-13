@@ -78,9 +78,12 @@ public sealed class UserNotificationSettingsController : ControllerBase
 
         var settings = await GetOrCreateAsync(user.Id, cancellationToken);
 
-        if (request.EmailEnabled.HasValue) settings.EmailEnabled = request.EmailEnabled.Value;
-        if (request.PushEnabled.HasValue) settings.PushEnabled = request.PushEnabled.Value;
-        if (followedTypesCsv is not null) settings.FollowedTypes = followedTypesCsv;
+        if (request.EmailEnabled.HasValue)          settings.EmailEnabled         = request.EmailEnabled.Value;
+        if (request.PushEnabled.HasValue)           settings.PushEnabled          = request.PushEnabled.Value;
+        if (request.InAppIncidentsEnabled.HasValue) settings.InAppIncidentsEnabled = request.InAppIncidentsEnabled.Value;
+        if (request.InAppMessagesEnabled.HasValue)  settings.InAppMessagesEnabled  = request.InAppMessagesEnabled.Value;
+        if (request.PushMessagesEnabled.HasValue)   settings.PushMessagesEnabled  = request.PushMessagesEnabled.Value;
+        if (followedTypesCsv is not null)           settings.FollowedTypes        = followedTypesCsv;
         settings.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(cancellationToken);

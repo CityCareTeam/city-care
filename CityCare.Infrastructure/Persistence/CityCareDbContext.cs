@@ -37,6 +37,9 @@ public class CityCareDbContext : DbContext
             entity.Property(u => u.MainRole)
                 .HasMaxLength(50);
 
+            entity.Property(u => u.DisplayName)
+                .HasMaxLength(255);
+
             entity.Property(u => u.DevicePushToken)
                 .HasMaxLength(512);
 
@@ -108,6 +111,9 @@ public class CityCareDbContext : DbContext
             entity.Property(m => m.AuthorRole)
                 .HasMaxLength(50);
 
+            entity.Property(m => m.AuthorName)
+                .HasMaxLength(255);
+
             entity.Property(m => m.Content)
                 .IsRequired()
                 .HasMaxLength(2000);
@@ -142,6 +148,18 @@ public class CityCareDbContext : DbContext
                 .HasDefaultValue(true);
 
             entity.Property(s => s.PushEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.InAppIncidentsEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.InAppMessagesEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.PushMessagesEnabled)
                 .IsRequired()
                 .HasDefaultValue(true);
 
