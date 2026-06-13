@@ -134,4 +134,48 @@ public sealed class NotificationsController : ControllerBase
 
         return NoContent();
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // DELETE /users/me/notifications/{id} — Supprimer une notification
+    // ─────────────────────────────────────────────────────────────
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteOne(Guid id, CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var notification = await _db.Notifications
+            .FirstOrDefaultAsync(n => n.Id == id && n.UserId == user.Id, cancellationToken);
+
+        if (notification is null)
+            return NotFound();
+
+        _db.Notifications.Remove(notification);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // DELETE /users/me/notifications — Supprimer toutes les notifications
+    // ─────────────────────────────────────────────────────────────
+    [HttpDelete]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DeleteAll(CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        await _db.Notifications
+            .Where(n => n.UserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        return NoContent();
+    }
 }
