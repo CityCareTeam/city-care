@@ -25,19 +25,22 @@ public sealed class IncidentMessagesController : ControllerBase
     private readonly IHubContext<IncidentChatHub> _hub;
     private readonly NotificationService _notificationService;
     private readonly ExpoPushService _expoPush;
+    private readonly ILogger<IncidentMessagesController> _logger;
 
     public IncidentMessagesController(
         CityCareDbContext db,
         CurrentUserService currentUser,
         IHubContext<IncidentChatHub> hub,
         NotificationService notificationService,
-        ExpoPushService expoPush)
+        ExpoPushService expoPush,
+        ILogger<IncidentMessagesController> logger)
     {
         _db = db;
         _currentUser = currentUser;
         _hub = hub;
         _notificationService = notificationService;
         _expoPush = expoPush;
+        _logger = logger;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -158,6 +161,10 @@ public sealed class IncidentMessagesController : ControllerBase
                 }
             }
         }
+
+        _logger.LogInformation(
+            "Message posté — incidentId={IncidentId}, auteur={AuthorId}, rôle={Role}",
+            incidentId, author.Id, role);
 
         return CreatedAtAction(nameof(GetAll), new { incidentId }, response);
     }

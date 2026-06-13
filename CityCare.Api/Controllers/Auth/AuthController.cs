@@ -105,6 +105,7 @@ public class AuthController : ControllerBase
 
         if (!response.IsSuccessStatusCode)
         {
+            _logger.LogWarning("Échec login — utilisateur={Username}, statut={Status}", request.Username, (int)response.StatusCode);
             return Unauthorized(json);
         }
 
@@ -115,6 +116,8 @@ public class AuthController : ControllerBase
         var refreshToken = root.GetProperty("refresh_token").GetString() ?? string.Empty;
         var tokenType = root.GetProperty("token_type").GetString() ?? "Bearer";
         var expiresIn = root.GetProperty("expires_in").GetInt32();
+
+        _logger.LogInformation("Login réussi — utilisateur={Username}", request.Username);
 
         var dto = new AuthLoginResponseDto(
             AccessToken: accessToken,

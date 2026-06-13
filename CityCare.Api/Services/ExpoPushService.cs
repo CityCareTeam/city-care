@@ -35,6 +35,8 @@ public sealed class ExpoPushService
         if (validTokens.Count == 0)
             return;
 
+        _logger.LogInformation("Expo push — envoi à {Count} destinataire(s), titre=\"{Title}\"", validTokens.Count, title);
+
         var messages = validTokens.Select(t => new ExpoMessage
         {
             To    = t,
@@ -50,12 +52,15 @@ public sealed class ExpoPushService
             {
                 var response = await _http.PostAsJsonAsync(ExpoEndpoint, batch, cancellationToken);
                 if (!response.IsSuccessStatusCode)
-                    _logger.LogWarning("Expo push failed: {Status}", response.StatusCode);
+                    _logger.LogWarning(
+                        "Expo push échoué — statut={Status}, tokens={Tokens}",
+                        (int)response.StatusCode,
+                        string.Join(", ", batch.Select(m => m.To)));
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Expo push send error");
+            _logger.LogError(ex, "Expo push erreur réseau — titre=\"{Title}\", {Count} destinataire(s)", title, validTokens.Count);
         }
     }
 

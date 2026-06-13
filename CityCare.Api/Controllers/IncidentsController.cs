@@ -21,6 +21,7 @@ public sealed class IncidentsController : ControllerBase
     private readonly GeocodeService _geocodeService;
     private readonly NotificationService _notificationService;
     private readonly ExpoPushService _expoPush;
+    private readonly ILogger<IncidentsController> _logger;
 
     public IncidentsController(
         CityCareDbContext db,
@@ -28,7 +29,8 @@ public sealed class IncidentsController : ControllerBase
         CurrentUserService currentUser,
         GeocodeService geocodeService,
         NotificationService notificationService,
-        ExpoPushService expoPush)
+        ExpoPushService expoPush,
+        ILogger<IncidentsController> logger)
     {
         _db = db;
         _incidentService = incidentService;
@@ -36,6 +38,7 @@ public sealed class IncidentsController : ControllerBase
         _geocodeService = geocodeService;
         _notificationService = notificationService;
         _expoPush = expoPush;
+        _logger = logger;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -139,6 +142,11 @@ public sealed class IncidentsController : ControllerBase
                 data:  new { incident_id = incident.Id });
         }
 
+        _logger.LogInformation(
+            "Incident créé — id={IncidentId}, type={Type}, adresse={Address}, inApp={InAppCount}, push={PushCount}",
+            incident.Id, IncidentService.ToSnakeCase(incident.Type), incident.AddressLabel,
+            allUserIds.Count, pushTokens.Count);
+
         return CreatedAtAction(nameof(GetById), new { id = incident.Id }, response);
     }
 
@@ -158,6 +166,8 @@ public sealed class IncidentsController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogDebug("GET /incidents — status={Status}, type={Type}, page={Page}", status, type, page);
+
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
@@ -375,6 +385,10 @@ public sealed class IncidentsController : ControllerBase
                     data:  new { incident_id = incident.Id });
         }
 
+        _logger.LogInformation(
+            "Statut incident mis à jour — id={IncidentId}, {OldStatus} → {NewStatus}, par={ActorId}",
+            incident.Id, IncidentService.ToSnakeCase(currentStatus), IncidentService.ToSnakeCase(nextStatus), changedByUserId);
+
         return Ok(new
         {
             id         = incident.Id,
@@ -398,6 +412,8 @@ public sealed class IncidentsController : ControllerBase
 
         _db.Incidents.Remove(incident);
         await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogWarning("Incident supprimé — id={IncidentId}, adresse={Address}", id, incident.AddressLabel);
 
         return NoContent();
     }

@@ -19,11 +19,13 @@ public sealed class UserNotificationSettingsController : ControllerBase
 {
     private readonly CityCareDbContext _db;
     private readonly CurrentUserService _currentUser;
+    private readonly ILogger<UserNotificationSettingsController> _logger;
 
-    public UserNotificationSettingsController(CityCareDbContext db, CurrentUserService currentUser)
+    public UserNotificationSettingsController(CityCareDbContext db, CurrentUserService currentUser, ILogger<UserNotificationSettingsController> logger)
     {
         _db = db;
         _currentUser = currentUser;
+        _logger = logger;
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -87,6 +89,8 @@ public sealed class UserNotificationSettingsController : ControllerBase
         settings.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Préférences notifications mises à jour — userId={UserId}", user.Id);
 
         return Ok(NotificationSettingsResponse.From(settings));
     }

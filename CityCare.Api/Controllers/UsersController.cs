@@ -14,11 +14,13 @@ public sealed class UsersController : ControllerBase
 {
     private readonly CityCareDbContext _db;
     private readonly CurrentUserService _currentUser;
+    private readonly ILogger<UsersController> _logger;
 
-    public UsersController(CityCareDbContext db, CurrentUserService currentUser)
+    public UsersController(CityCareDbContext db, CurrentUserService currentUser, ILogger<UsersController> logger)
     {
         _db = db;
         _currentUser = currentUser;
+        _logger = logger;
     }
 
     [HttpGet("me")]
@@ -60,6 +62,8 @@ public sealed class UsersController : ControllerBase
         user.DevicePushToken = request.PushToken.Trim();
         user.UpdatedAt       = DateTime.UtcNow;
         await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Push token enregistré — userId={UserId}", user.Id);
 
         return NoContent();
     }
