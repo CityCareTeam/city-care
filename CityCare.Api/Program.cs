@@ -31,6 +31,8 @@ builder.Services.AddScoped<IncidentService>();
 builder.Services.AddScoped<GeocodeService>();
 builder.Services.AddScoped<CurrentUserService>();
 builder.Services.AddScoped<KeycloakService>();
+builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<ExpoPushService>();
 
 // SignalR — chat temps réel (Lot 2)
 builder.Services.AddSignalR();

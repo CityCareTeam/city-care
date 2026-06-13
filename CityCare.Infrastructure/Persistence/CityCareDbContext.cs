@@ -16,6 +16,8 @@ public class CityCareDbContext : DbContext
     // ─── AJOUT Lots 2 & 3 ───────────────────────────────────────────
     public DbSet<IncidentMessage> IncidentMessages => Set<IncidentMessage>();
     public DbSet<UserNotificationSettings> UserNotificationSettings => Set<UserNotificationSettings>();
+    // ─── AJOUT Lot 3 : centre de notifications in-app ────────────────
+    public DbSet<Notification> Notifications => Set<Notification>();
     // ────────────────────────────────────────────────────────────────
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -31,6 +33,12 @@ public class CityCareDbContext : DbContext
             entity.Property(u => u.KeycloakId)
                 .IsRequired()
                 .HasMaxLength(255);
+
+            entity.Property(u => u.MainRole)
+                .HasMaxLength(50);
+
+            entity.Property(u => u.DevicePushToken)
+                .HasMaxLength(512);
 
             entity.HasIndex(u => u.KeycloakId).IsUnique();
         });
@@ -153,6 +161,41 @@ public class CityCareDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(s => s.UserId).IsUnique();
+        });
+        // ─── AJOUT Lot 3 : notifications in-app ─────────────────────────
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.ToTable("notifications");
+
+            entity.HasKey(n => n.Id);
+
+            entity.Property(n => n.Title)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.Property(n => n.Body)
+                .IsRequired()
+                .HasMaxLength(1000);
+
+            entity.Property(n => n.Type)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(n => n.IsRead)
+                .IsRequired()
+                .HasDefaultValue(false);
+
+            entity.Property(n => n.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(n => n.UserId);
+            entity.HasIndex(n => new { n.UserId, n.IsRead });
+            entity.HasIndex(n => n.CreatedAt);
         });
         // ────────────────────────────────────────────────────────────
     }

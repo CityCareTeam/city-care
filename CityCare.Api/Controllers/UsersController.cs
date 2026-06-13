@@ -39,6 +39,31 @@ public sealed class UsersController : ControllerBase
         return Ok(dto);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    // PATCH /users/me/push-token — Enregistre le token Expo Push du device
+    // ─────────────────────────────────────────────────────────────
+    [HttpPatch("me/push-token")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> UpdatePushToken(
+        [FromBody] UpdatePushTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        if (string.IsNullOrWhiteSpace(request.PushToken))
+            return UnprocessableEntity(new { error = "push_token ne peut pas être vide." });
+
+        user.DevicePushToken = request.PushToken.Trim();
+        user.UpdatedAt       = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
     [HttpGet("me/incidents")]
     public async Task<IActionResult> GetMyIncidents(CancellationToken cancellationToken)
     {

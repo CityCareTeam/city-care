@@ -49,6 +49,21 @@ public sealed class CurrentUserService
         if (string.IsNullOrWhiteSpace(sub))
             return null;
 
-        return await GetOrCreateByKeycloakIdAsync(sub, cancellationToken);
+        var user = await GetOrCreateByKeycloakIdAsync(sub, cancellationToken);
+
+        // Sync du rôle principal depuis le JWT (mainRole ou premier rôle métier).
+        var mainRole = principal.FindFirstValue("mainRole")
+            ?? principal.FindAll(ClaimTypes.Role)
+                        .Select(c => c.Value)
+                        .FirstOrDefault(r => r is "citizen" or "agent" or "admin");
+
+        if (mainRole is not null && user.MainRole != mainRole)
+        {
+            user.MainRole  = mainRole;
+            user.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return user;
     }
 }
