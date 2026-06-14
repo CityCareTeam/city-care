@@ -19,5 +19,19 @@ jobs:
           git fetch origin
           git checkout main
           git reset --hard origin/main
-          docker compose up -d --build
+          cat > .env <<EOF
+          POSTGRES_DB=citycare
+          POSTGRES_USER=citycare
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          KEYCLOAK_ADMIN=${{ secrets.KEYCLOAK_ADMIN }}
+          KEYCLOAK_ADMIN_PASSWORD=${{ secrets.KEYCLOAK_ADMIN_PASSWORD }}
+          KEYCLOAK_DB_PASSWORD=${{ secrets.KEYCLOAK_DB_PASSWORD }}
+          KEYCLOAK_API_CLIENT_SECRET=${{ secrets.KEYCLOAK_API_CLIENT_SECRET }}
+          MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
+          MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
+          MINIO_BUCKET=citycare-photos
+          MINIO_USE_SSL=${{ vars.MINIO_USE_SSL }}
+          MINIO_PUBLIC_BASE_URL=${{ vars.MINIO_PUBLIC_BASE_URL }}
+          EOF
+          docker compose -f docker-compose.prod.yml up -d --build
           docker image prune -f
