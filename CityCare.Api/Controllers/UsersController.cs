@@ -17,13 +17,15 @@ public sealed class UsersController : ControllerBase
     private readonly CurrentUserService _currentUser;
     private readonly ILogger<UsersController> _logger;
     private readonly KeycloakService _keycloak;
+    private readonly PhotoStorageService _photoStorage;
 
-    public UsersController(CityCareDbContext db, CurrentUserService currentUser, ILogger<UsersController> logger, KeycloakService keycloak)
+    public UsersController(CityCareDbContext db, CurrentUserService currentUser, ILogger<UsersController> logger, KeycloakService keycloak, PhotoStorageService photoStorage)
     {
         _db = db;
         _currentUser = currentUser;
         _logger = logger;
         _keycloak = keycloak;
+        _photoStorage = photoStorage;
     }
 
     [HttpGet("me")]
@@ -146,6 +148,24 @@ public sealed class UsersController : ControllerBase
         var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
         if (user is null)
             return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        // Collecter toutes les clés MinIO à supprimer avant de toucher la BDD :
+        // - photos uploadées par l'user (sur n'importe quel incident)
+        // - photos sur les incidents de l'user (uploadées par quelqu'un d'autre, supprimées en cascade)
+        var keysUploadedByUser = await _db.Set<IncidentPhoto>()
+            .Where(p => p.UploadedByUserId == user.Id)
+            .Select(p => p.ObjectKey)
+            .ToListAsync(cancellationToken);
+
+        var keysOnUserIncidents = await _db.Set<IncidentPhoto>()
+            .Where(p => p.Incident.AuthorUserId == user.Id)
+            .Select(p => p.ObjectKey)
+            .ToListAsync(cancellationToken);
+
+        var allKeys = keysUploadedByUser.Union(keysOnUserIncidents).Distinct().ToList();
+
+        foreach (var key in allKeys)
+            await _photoStorage.DeleteAsync(key, cancellationToken);
 
         // Supprimer d'abord les références Restrict avant la suppression en cascade
         await _db.Set<IncidentStatusHistory>()
