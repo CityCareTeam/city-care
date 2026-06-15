@@ -19,6 +19,9 @@ public sealed class IncidentsController : ControllerBase
     private readonly IncidentService _incidentService;
     private readonly CurrentUserService _currentUser;
     private readonly GeocodeService _geocodeService;
+    private readonly NotificationService _notificationService;
+    private readonly ExpoPushService _expoPush;
+    private readonly ILogger<IncidentsController> _logger;
     private readonly PhotoStorageService _photoStorage;
 
     public IncidentsController(
@@ -26,12 +29,18 @@ public sealed class IncidentsController : ControllerBase
         IncidentService incidentService,
         CurrentUserService currentUser,
         GeocodeService geocodeService,
+        NotificationService notificationService,
+        ExpoPushService expoPush,
+        ILogger<IncidentsController> logger,
         PhotoStorageService photoStorage)
     {
         _db = db;
         _incidentService = incidentService;
         _currentUser = currentUser;
         _geocodeService = geocodeService;
+        _notificationService = notificationService;
+        _expoPush = expoPush;
+        _logger = logger;
         _photoStorage = photoStorage;
     }
 
@@ -100,6 +109,55 @@ public sealed class IncidentsController : ControllerBase
                 : null
         };
 
+        // Notif in-app : tout le monde sauf le créateur, avec InAppIncidentsEnabled.
+        var allUserIds = await (
+            from u in _db.Users
+            where u.Id != authorUserId
+            join s in _db.UserNotificationSettings on u.Id equals s.UserId into settings
+            from s in settings.DefaultIfEmpty()
+            where s == null || s.InAppIncidentsEnabled
+            select u.Id
+        ).ToListAsync(cancellationToken);
+
+        // Label commun pour in-app et push.
+        var incidentTypeStr = IncidentService.ToSnakeCase(incident.Type);
+        var notifBody = $"{incidentTypeStr} — {incident.AddressLabel} : {incident.Description}";
+
+        if (allUserIds.Count > 0)
+        {
+            await _notificationService.CreateBulkAsync(
+                allUserIds,
+                title:      "Nouveau signalement",
+                body:       notifBody,
+                type:       "new_incident",
+                incidentId: incident.Id,
+                cancellationToken: cancellationToken);
+        }
+
+        // Push à tous les utilisateurs (sauf créateur) avec push activé + type suivi.
+        var pushTokens = await (
+            from u in _db.Users
+            where u.Id != authorUserId && u.DevicePushToken != null
+            join s in _db.UserNotificationSettings on u.Id equals s.UserId into settings
+            from s in settings.DefaultIfEmpty()
+            where s == null || (s.PushEnabled && (s.FollowedTypes == "" || s.FollowedTypes.Contains(incidentTypeStr)))
+            select u.DevicePushToken!
+        ).ToListAsync(cancellationToken);
+
+        if (pushTokens.Count > 0)
+        {
+            _ = _expoPush.SendBatchAsync(
+                pushTokens,
+                title: "Nouveau signalement",
+                body:  notifBody,
+                data:  new { incident_id = incident.Id });
+        }
+
+        _logger.LogInformation(
+            "Incident créé — id={IncidentId}, type={Type}, adresse={Address}, inApp={InAppCount}, push={PushCount}",
+            incident.Id, IncidentService.ToSnakeCase(incident.Type), incident.AddressLabel,
+            allUserIds.Count, pushTokens.Count);
+
         return CreatedAtAction(nameof(GetById), new { id = incident.Id }, response);
     }
 
@@ -119,6 +177,8 @@ public sealed class IncidentsController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogDebug("GET /incidents — status={Status}, type={Type}, page={Page}", status, type, page);
+
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
@@ -342,6 +402,50 @@ public sealed class IncidentsController : ControllerBase
 
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Notifier l'auteur du changement de statut (in-app) si préférence activée.
+        var statusLabel = IncidentService.ToSnakeCase(nextStatus) switch
+        {
+            "in_progress" => "en cours de traitement",
+            "resolved"    => "résolu",
+            _             => IncidentService.ToSnakeCase(nextStatus)
+        };
+
+        var authorPrefs = await _db.UserNotificationSettings
+            .AsNoTracking()
+            .Where(s => s.UserId == incident.AuthorUserId)
+            .Select(s => new { s.InAppIncidentsEnabled, s.PushEnabled })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (authorPrefs?.InAppIncidentsEnabled ?? true)
+            await _notificationService.CreateAsync(
+                userId:     incident.AuthorUserId,
+                title:      "Mise à jour de votre signalement",
+                body:       $"Votre signalement est maintenant {statusLabel}.",
+                type:       "incident_status_changed",
+                incidentId: incident.Id,
+                cancellationToken: cancellationToken);
+
+        // Push au citoyen auteur si push activé et token disponible.
+        if (authorPrefs?.PushEnabled ?? true)
+        {
+            var authorToken = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.Id == incident.AuthorUserId)
+                .Select(u => u.DevicePushToken)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(authorToken))
+                _ = _expoPush.SendAsync(
+                    authorToken,
+                    title: "Mise à jour de votre signalement",
+                    body:  $"Votre signalement est maintenant {statusLabel}.",
+                    data:  new { incident_id = incident.Id });
+        }
+
+        _logger.LogInformation(
+            "Statut incident mis à jour — id={IncidentId}, {OldStatus} → {NewStatus}, par={ActorId}",
+            incident.Id, IncidentService.ToSnakeCase(currentStatus), IncidentService.ToSnakeCase(nextStatus), changedByUserId);
+
         return Ok(new
         {
             id         = incident.Id,
@@ -496,6 +600,8 @@ public sealed class IncidentsController : ControllerBase
 
         _db.Incidents.Remove(incident);
         await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogWarning("Incident supprimé — id={IncidentId}, adresse={Address}", id, incident.AddressLabel);
 
         return NoContent();
     }
