@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using CityCare.Api.Dtos.Incidents;
 using CityCare.Api.Models.DTOs;
 using CityCare.Api.Services;
@@ -464,6 +465,113 @@ public sealed class IncidentsController : ControllerBase
         await _photoStorage.DeleteAsync(photo.ObjectKey, cancellationToken);
 
         _db.IncidentPhotos.Remove(photo);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // GET /incidents/{id}/votes — Compteur de votes + si l'utilisateur a voté
+    // ─────────────────────────────────────────────────────────────
+    [HttpGet("{id:guid}/votes")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetVotes(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var voteCount = await _db.IncidentVotes
+            .AsNoTracking()
+            .CountAsync(v => v.IncidentId == id, cancellationToken);
+
+        var hasVoted = false;
+        var sub = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                  ?? User.FindFirst("sub")?.Value;
+
+        if (!string.IsNullOrWhiteSpace(sub))
+        {
+            hasVoted = await _db.IncidentVotes
+                .AsNoTracking()
+                .AnyAsync(v => v.IncidentId == id && v.User.KeycloakId == sub, cancellationToken);
+        }
+
+        return Ok(new VoteResponse
+        {
+            IncidentId = id,
+            VoteCount  = voteCount,
+            HasVoted   = hasVoted
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // POST /incidents/{id}/votes — Voter (un seul vote par incident)
+    // ─────────────────────────────────────────────────────────────
+    [HttpPost("{id:guid}/votes")]
+    [Authorize]
+    public async Task<IActionResult> AddVote(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var alreadyVoted = await _db.IncidentVotes
+            .AnyAsync(v => v.IncidentId == id && v.UserId == actor.Id, cancellationToken);
+
+        if (alreadyVoted)
+            return Conflict(new { error = "Vous avez déjà voté pour ce signalement." });
+
+        _db.IncidentVotes.Add(new IncidentVote
+        {
+            Id         = Guid.NewGuid(),
+            IncidentId = id,
+            UserId     = actor.Id,
+            CreatedAt  = DateTime.UtcNow
+        });
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var voteCount = await _db.IncidentVotes
+            .CountAsync(v => v.IncidentId == id, cancellationToken);
+
+        var response = new VoteResponse
+        {
+            IncidentId = id,
+            VoteCount  = voteCount,
+            HasVoted   = true
+        };
+
+        return CreatedAtAction(nameof(GetVotes), new { id }, response);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // DELETE /incidents/{id}/votes/me — Retirer son vote
+    // ─────────────────────────────────────────────────────────────
+    [HttpDelete("{id:guid}/votes/me")]
+    [Authorize]
+    public async Task<IActionResult> RemoveVote(Guid id, CancellationToken cancellationToken)
+    {
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var vote = await _db.IncidentVotes
+            .FirstOrDefaultAsync(v => v.IncidentId == id && v.UserId == actor.Id, cancellationToken);
+
+        if (vote is null)
+            return NotFound();
+
+        _db.IncidentVotes.Remove(vote);
         await _db.SaveChangesAsync(cancellationToken);
 
         return NoContent();
