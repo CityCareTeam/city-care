@@ -12,6 +12,7 @@ public class CityCareDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Incident> Incidents => Set<Incident>();
     public DbSet<IncidentStatusHistory> IncidentStatusHistories => Set<IncidentStatusHistory>();
+    public DbSet<IncidentPhoto> IncidentPhotos => Set<IncidentPhoto>();
 
     // ─── AJOUT Lots 2 & 3 ───────────────────────────────────────────
     public DbSet<IncidentMessage> IncidentMessages => Set<IncidentMessage>();
@@ -180,6 +181,7 @@ public class CityCareDbContext : DbContext
 
             entity.HasIndex(s => s.UserId).IsUnique();
         });
+
         // ─── AJOUT Lot 3 : notifications in-app ─────────────────────────
         modelBuilder.Entity<Notification>(entity =>
         {
@@ -224,6 +226,41 @@ public class CityCareDbContext : DbContext
             entity.HasIndex(n => new { n.UserId, n.IsRead });
             entity.HasIndex(n => n.CreatedAt);
         });
-        // ────────────────────────────────────────────────────────────
+
+        // ─── AJOUT lot 2 back : photos d'incident ────────────────────
+        modelBuilder.Entity<IncidentPhoto>(entity =>
+        {
+            entity.ToTable("incident_photos");
+
+            entity.HasKey(p => p.Id);
+
+            entity.Property(p => p.ObjectKey)
+                .IsRequired()
+                .HasMaxLength(512);
+
+            entity.Property(p => p.FileName)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.Property(p => p.ContentType)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(p => p.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne(p => p.Incident)
+                .WithMany()
+                .HasForeignKey(p => p.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(p => p.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(p => p.IncidentId);
+            entity.HasIndex(p => p.UploadedByUserId);
+        });
     }
 }

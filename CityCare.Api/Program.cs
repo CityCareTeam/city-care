@@ -7,6 +7,7 @@ using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Minio;
 
 // Désactiver le mapping automatique des claims JWT
 JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
@@ -45,6 +46,17 @@ builder.Services.AddScoped<ExpoPushService>();
 // SignalR — chat temps réel (Lot 2)
 builder.Services.AddSignalR();
 
+// Stockage de fichiers (MinIO / S3)
+var minioOptions = builder.Configuration.GetSection("Minio").Get<MinioOptions>() ?? new MinioOptions();
+builder.Services.AddSingleton(minioOptions);
+builder.Services.AddSingleton<IMinioClient>(_ =>
+    new MinioClient()
+        .WithEndpoint(minioOptions.Endpoint)
+        .WithCredentials(minioOptions.AccessKey, minioOptions.SecretKey)
+        .WithSSL(minioOptions.UseSSL)
+        .Build());
+builder.Services.AddScoped<PhotoStorageService>();
+
 // Authentification
 var keycloakUrl = builder.Configuration["Keycloak:Url"];
 var keycloakRealm = builder.Configuration["Keycloak:Realm"];
@@ -52,7 +64,7 @@ var keycloakRealm = builder.Configuration["Keycloak:Realm"];
 if (string.IsNullOrWhiteSpace(keycloakUrl) || string.IsNullOrWhiteSpace(keycloakRealm))
     throw new InvalidOperationException("Keycloak:Url et Keycloak:Realm doivent être configurés.");
 
-var keycloakIssuer = $"{keycloakUrl}/realms/{keycloakRealm}";
+var keycloakIssuer = $"{keycloakUrl.TrimEnd('/')}/realms/{keycloakRealm}";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -65,7 +77,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuer = true,
             ValidateAudience = false,
             ValidateLifetime = true,
-            ValidIssuer = keycloakIssuer,
+            ValidIssuers = new[]
+            {
+                keycloakIssuer,
+                $"http://localhost:8080/realms/{keycloakRealm}",
+                $"http://keycloak:8080/realms/{keycloakRealm}"
+            },
             NameClaimType = "preferred_username",
             RoleClaimType = ClaimTypes.Role
         };
