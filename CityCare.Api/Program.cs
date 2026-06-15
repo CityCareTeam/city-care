@@ -150,4 +150,7 @@ app.MapControllers();
 // Point de connexion WebSocket du chat
 app.MapHub<IncidentChatHub>("/hubs/incident-chat");
 
+using (var scope = app.Services.CreateScope())
+    scope.ServiceProvider.GetRequiredService<CityCareDbContext>().Database.Migrate();
+
 app.Run();
