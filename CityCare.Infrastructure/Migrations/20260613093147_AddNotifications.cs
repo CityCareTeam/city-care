@@ -6,31 +6,29 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace CityCare.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class AddIncidentVotes : Migration
+    public partial class AddNotifications : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "incident_votes",
+                name: "notifications",
                 columns: table => new
                 {
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    IncidentId = table.Column<Guid>(type: "uuid", nullable: false),
                     UserId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Title = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+                    Body = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: false),
+                    Type = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    IncidentId = table.Column<Guid>(type: "uuid", nullable: true),
+                    IsRead = table.Column<bool>(type: "boolean", nullable: false, defaultValue: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_incident_votes", x => x.Id);
+                    table.PrimaryKey("PK_notifications", x => x.Id);
                     table.ForeignKey(
-                        name: "FK_incident_votes_incidents_IncidentId",
-                        column: x => x.IncidentId,
-                        principalTable: "incidents",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_incident_votes_users_UserId",
+                        name: "FK_notifications_users_UserId",
                         column: x => x.UserId,
                         principalTable: "users",
                         principalColumn: "Id",
@@ -38,22 +36,26 @@ namespace CityCare.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_incident_votes_IncidentId_UserId",
-                table: "incident_votes",
-                columns: new[] { "IncidentId", "UserId" },
-                unique: true);
+                name: "IX_notifications_CreatedAt",
+                table: "notifications",
+                column: "CreatedAt");
 
             migrationBuilder.CreateIndex(
-                name: "IX_incident_votes_UserId",
-                table: "incident_votes",
+                name: "IX_notifications_UserId",
+                table: "notifications",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_notifications_UserId_IsRead",
+                table: "notifications",
+                columns: new[] { "UserId", "IsRead" });
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
-                name: "incident_votes");
+                name: "notifications");
         }
     }
 }

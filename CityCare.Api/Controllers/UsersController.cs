@@ -15,13 +15,17 @@ public sealed class UsersController : ControllerBase
 {
     private readonly CityCareDbContext _db;
     private readonly CurrentUserService _currentUser;
+    private readonly ILogger<UsersController> _logger;
     private readonly KeycloakService _keycloak;
+    private readonly PhotoStorageService _photoStorage;
 
-    public UsersController(CityCareDbContext db, CurrentUserService currentUser, KeycloakService keycloak)
+    public UsersController(CityCareDbContext db, CurrentUserService currentUser, ILogger<UsersController> logger, KeycloakService keycloak, PhotoStorageService photoStorage)
     {
         _db = db;
         _currentUser = currentUser;
+        _logger = logger;
         _keycloak = keycloak;
+        _photoStorage = photoStorage;
     }
 
     [HttpGet("me")]
@@ -40,6 +44,33 @@ public sealed class UsersController : ControllerBase
             new DateTimeOffset(DateTime.SpecifyKind(user.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)));
 
         return Ok(dto);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // PATCH /users/me/push-token — Enregistre le token Expo Push du device
+    // ─────────────────────────────────────────────────────────────
+    [HttpPatch("me/push-token")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> UpdatePushToken(
+        [FromBody] UpdatePushTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        if (string.IsNullOrWhiteSpace(request.PushToken))
+            return UnprocessableEntity(new { error = "push_token ne peut pas être vide." });
+
+        user.DevicePushToken = request.PushToken.Trim();
+        user.UpdatedAt       = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Push token enregistré — userId={UserId}", user.Id);
+
+        return NoContent();
     }
 
     [HttpGet("me/incidents")]
@@ -118,6 +149,24 @@ public sealed class UsersController : ControllerBase
         if (user is null)
             return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
 
+        // Collecter toutes les clés MinIO à supprimer avant de toucher la BDD :
+        // - photos uploadées par l'user (sur n'importe quel incident)
+        // - photos sur les incidents de l'user (uploadées par quelqu'un d'autre, supprimées en cascade)
+        var keysUploadedByUser = await _db.Set<IncidentPhoto>()
+            .Where(p => p.UploadedByUserId == user.Id)
+            .Select(p => p.ObjectKey)
+            .ToListAsync(cancellationToken);
+
+        var keysOnUserIncidents = await _db.Set<IncidentPhoto>()
+            .Where(p => p.Incident.AuthorUserId == user.Id)
+            .Select(p => p.ObjectKey)
+            .ToListAsync(cancellationToken);
+
+        var allKeys = keysUploadedByUser.Union(keysOnUserIncidents).Distinct().ToList();
+
+        foreach (var key in allKeys)
+            await _photoStorage.DeleteAsync(key, cancellationToken);
+
         // Supprimer d'abord les références Restrict avant la suppression en cascade
         await _db.Set<IncidentStatusHistory>()
             .Where(h => h.ChangedByUserId == user.Id)
@@ -125,6 +174,10 @@ public sealed class UsersController : ControllerBase
 
         await _db.Set<IncidentPhoto>()
             .Where(p => p.UploadedByUserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _db.Set<IncidentMessage>()
+            .Where(m => m.AuthorUserId == user.Id)
             .ExecuteDeleteAsync(cancellationToken);
 
         _db.Users.Remove(user);
