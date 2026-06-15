@@ -156,6 +156,10 @@ public sealed class UsersController : ControllerBase
             .Where(p => p.UploadedByUserId == user.Id)
             .ExecuteDeleteAsync(cancellationToken);
 
+        await _db.Set<IncidentMessage>()
+            .Where(m => m.AuthorUserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
         _db.Users.Remove(user);
         await _db.SaveChangesAsync(cancellationToken);
 
