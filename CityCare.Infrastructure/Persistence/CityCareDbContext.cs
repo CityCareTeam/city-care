@@ -13,6 +13,7 @@ public class CityCareDbContext : DbContext
     public DbSet<Incident> Incidents => Set<Incident>();
     public DbSet<IncidentStatusHistory> IncidentStatusHistories => Set<IncidentStatusHistory>();
     public DbSet<IncidentPhoto> IncidentPhotos => Set<IncidentPhoto>();
+    public DbSet<IncidentVote> IncidentVotes => Set<IncidentVote>();
 
     // ─── AJOUT Lots 2 & 3 ───────────────────────────────────────────
     public DbSet<IncidentMessage> IncidentMessages => Set<IncidentMessage>();
@@ -261,6 +262,29 @@ public class CityCareDbContext : DbContext
 
             entity.HasIndex(p => p.IncidentId);
             entity.HasIndex(p => p.UploadedByUserId);
+        });
+
+        modelBuilder.Entity<IncidentVote>(entity =>
+        {
+            entity.ToTable("incident_votes");
+
+            entity.HasKey(v => v.Id);
+
+            entity.Property(v => v.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne(v => v.Incident)
+                .WithMany()
+                .HasForeignKey(v => v.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(v => v.User)
+                .WithMany()
+                .HasForeignKey(v => v.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Un seul vote par utilisateur et par incident
+            entity.HasIndex(v => new { v.IncidentId, v.UserId }).IsUnique();
         });
     }
 }
