@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
+using CityCare.Api.Extensions;
 using CityCare.Api.Services;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -23,7 +24,7 @@ builder.Services.AddDbContext<CityCareDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddCityCareSwagger(builder.Configuration);
 
 // Services métier
 builder.Services.AddHttpClient();
@@ -106,11 +107,7 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseCityCareSwaggerUI();
 
 app.UseHttpsRedirection();
 
