@@ -1,4 +1,4 @@
-using CityCare.Core.Entities;
+﻿using CityCare.Core.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace CityCare.Infrastructure.Persistence;
@@ -12,6 +12,15 @@ public class CityCareDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Incident> Incidents => Set<Incident>();
     public DbSet<IncidentStatusHistory> IncidentStatusHistories => Set<IncidentStatusHistory>();
+    public DbSet<IncidentPhoto> IncidentPhotos => Set<IncidentPhoto>();
+    public DbSet<IncidentVote> IncidentVotes => Set<IncidentVote>();
+
+    // ─── AJOUT Lots 2 & 3 ───────────────────────────────────────────
+    public DbSet<IncidentMessage> IncidentMessages => Set<IncidentMessage>();
+    public DbSet<UserNotificationSettings> UserNotificationSettings => Set<UserNotificationSettings>();
+    // ─── AJOUT Lot 3 : centre de notifications in-app ────────────────
+    public DbSet<Notification> Notifications => Set<Notification>();
+    // ────────────────────────────────────────────────────────────────
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -26,6 +35,15 @@ public class CityCareDbContext : DbContext
             entity.Property(u => u.KeycloakId)
                 .IsRequired()
                 .HasMaxLength(255);
+
+            entity.Property(u => u.MainRole)
+                .HasMaxLength(50);
+
+            entity.Property(u => u.DisplayName)
+                .HasMaxLength(255);
+
+            entity.Property(u => u.DevicePushToken)
+                .HasMaxLength(512);
 
             entity.HasIndex(u => u.KeycloakId).IsUnique();
         });
@@ -83,6 +101,190 @@ public class CityCareDbContext : DbContext
             entity.HasIndex(h => h.IncidentId);
             entity.HasIndex(h => h.ChangedByUserId);
             entity.HasIndex(h => h.ChangedAt);
+        });
+
+        // ─── AJOUT Lot 2 : messages d'incident ──────────────────────
+        modelBuilder.Entity<IncidentMessage>(entity =>
+        {
+            entity.ToTable("incident_messages");
+
+            entity.HasKey(m => m.Id);
+
+            entity.Property(m => m.AuthorRole)
+                .HasMaxLength(50);
+
+            entity.Property(m => m.AuthorName)
+                .HasMaxLength(255);
+
+            entity.Property(m => m.Content)
+                .IsRequired()
+                .HasMaxLength(2000);
+
+            entity.Property(m => m.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne<Incident>()
+                .WithMany()
+                .HasForeignKey(m => m.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(m => m.AuthorUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(m => m.IncidentId);
+            entity.HasIndex(m => m.CreatedAt);
+            entity.HasIndex(m => m.AuthorUserId);
+        });
+
+        // ─── AJOUT Lot 3 : préférences de notification ──────────────
+        modelBuilder.Entity<UserNotificationSettings>(entity =>
+        {
+            entity.ToTable("user_notification_settings");
+
+            entity.HasKey(s => s.Id);
+
+            entity.Property(s => s.EmailEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.PushEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.InAppIncidentsEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.InAppMessagesEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.PushMessagesEnabled)
+                .IsRequired()
+                .HasDefaultValue(true);
+
+            entity.Property(s => s.FollowedTypes)
+                .IsRequired()
+                .HasDefaultValue("");
+
+            entity.Property(s => s.CreatedAt)
+                .IsRequired();
+
+            entity.Property(s => s.UpdatedAt)
+                .IsRequired();
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(s => s.UserId).IsUnique();
+        });
+
+        // ─── AJOUT Lot 3 : notifications in-app ─────────────────────────
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.ToTable("notifications");
+
+            entity.HasKey(n => n.Id);
+
+            entity.Property(n => n.Title)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.Property(n => n.Body)
+                .IsRequired()
+                .HasMaxLength(1000);
+
+            entity.Property(n => n.Type)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(n => n.IsRead)
+                .IsRequired()
+                .HasDefaultValue(false);
+
+            entity.Property(n => n.MessageCount)
+                .IsRequired(false);
+
+            entity.Property(n => n.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne<User>()
+                .WithMany()
+                .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne<Incident>()
+                .WithMany()
+                .HasForeignKey(n => n.IncidentId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(n => n.UserId);
+            entity.HasIndex(n => new { n.UserId, n.IsRead });
+            entity.HasIndex(n => n.CreatedAt);
+        });
+
+        // ─── AJOUT lot 2 back : photos d'incident ────────────────────
+        modelBuilder.Entity<IncidentPhoto>(entity =>
+        {
+            entity.ToTable("incident_photos");
+
+            entity.HasKey(p => p.Id);
+
+            entity.Property(p => p.ObjectKey)
+                .IsRequired()
+                .HasMaxLength(512);
+
+            entity.Property(p => p.FileName)
+                .IsRequired()
+                .HasMaxLength(255);
+
+            entity.Property(p => p.ContentType)
+                .IsRequired()
+                .HasMaxLength(100);
+
+            entity.Property(p => p.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne(p => p.Incident)
+                .WithMany()
+                .HasForeignKey(p => p.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(p => p.UploadedByUser)
+                .WithMany()
+                .HasForeignKey(p => p.UploadedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(p => p.IncidentId);
+            entity.HasIndex(p => p.UploadedByUserId);
+        });
+
+        modelBuilder.Entity<IncidentVote>(entity =>
+        {
+            entity.ToTable("incident_votes");
+
+            entity.HasKey(v => v.Id);
+
+            entity.Property(v => v.CreatedAt)
+                .IsRequired();
+
+            entity.HasOne(v => v.Incident)
+                .WithMany()
+                .HasForeignKey(v => v.IncidentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(v => v.User)
+                .WithMany()
+                .HasForeignKey(v => v.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // Un seul vote par utilisateur et par incident
+            entity.HasIndex(v => new { v.IncidentId, v.UserId }).IsUnique();
         });
     }
 }

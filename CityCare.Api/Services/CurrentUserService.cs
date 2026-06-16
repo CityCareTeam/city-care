@@ -49,6 +49,30 @@ public sealed class CurrentUserService
         if (string.IsNullOrWhiteSpace(sub))
             return null;
 
-        return await GetOrCreateByKeycloakIdAsync(sub, cancellationToken);
+        var user = await GetOrCreateByKeycloakIdAsync(sub, cancellationToken);
+
+        // Sync du rôle principal — même mécanisme que [Authorize(Roles="...")].
+        var mainRole = new[] { "admin", "agent", "citizen" }
+            .FirstOrDefault(principal.IsInRole);
+
+        // Sync du nom d'affichage : given_name + family_name, sinon preferred_username.
+        var given    = principal.FindFirstValue("given_name");
+        var family   = principal.FindFirstValue("family_name");
+        var username = principal.FindFirstValue("preferred_username");
+        var displayName = !string.IsNullOrWhiteSpace(given)
+            ? (string.IsNullOrWhiteSpace(family) ? given : $"{given} {family}")
+            : username;
+
+        var changed = false;
+        if (mainRole is not null && user.MainRole != mainRole)   { user.MainRole    = mainRole;   changed = true; }
+        if (displayName is not null && user.DisplayName != displayName) { user.DisplayName = displayName; changed = true; }
+
+        if (changed)
+        {
+            user.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(cancellationToken);
+        }
+
+        return user;
     }
 }

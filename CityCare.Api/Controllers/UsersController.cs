@@ -1,5 +1,6 @@
 using CityCare.Api.Dtos.Users;
 using CityCare.Api.Services;
+using CityCare.Core.Entities;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -14,11 +15,17 @@ public sealed class UsersController : ControllerBase
 {
     private readonly CityCareDbContext _db;
     private readonly CurrentUserService _currentUser;
+    private readonly ILogger<UsersController> _logger;
+    private readonly KeycloakService _keycloak;
+    private readonly PhotoStorageService _photoStorage;
 
-    public UsersController(CityCareDbContext db, CurrentUserService currentUser)
+    public UsersController(CityCareDbContext db, CurrentUserService currentUser, ILogger<UsersController> logger, KeycloakService keycloak, PhotoStorageService photoStorage)
     {
         _db = db;
         _currentUser = currentUser;
+        _logger = logger;
+        _keycloak = keycloak;
+        _photoStorage = photoStorage;
     }
 
     [HttpGet("me")]
@@ -37,6 +44,33 @@ public sealed class UsersController : ControllerBase
             new DateTimeOffset(DateTime.SpecifyKind(user.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2)));
 
         return Ok(dto);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // PATCH /users/me/push-token — Enregistre le token Expo Push du device
+    // ─────────────────────────────────────────────────────────────
+    [HttpPatch("me/push-token")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> UpdatePushToken(
+        [FromBody] UpdatePushTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        if (string.IsNullOrWhiteSpace(request.PushToken))
+            return UnprocessableEntity(new { error = "push_token ne peut pas être vide." });
+
+        user.DevicePushToken = request.PushToken.Trim();
+        user.UpdatedAt       = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Push token enregistré — userId={UserId}", user.Id);
+
+        return NoContent();
     }
 
     [HttpGet("me/incidents")]
@@ -70,5 +104,87 @@ public sealed class UsersController : ControllerBase
         }).ToList();
 
         return Ok(new { data = incidents });
+    }
+
+    [HttpPatch("me")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> UpdateMe([FromBody] UpdateMeRequestDto dto, CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        if (dto.Email != null || dto.Username != null || dto.FirstName != null || dto.LastName != null)
+        {
+            try
+            {
+                await _keycloak.UpdateUserAsync(user.KeycloakId, dto.Email, dto.Username, dto.FirstName, dto.LastName);
+            }
+            catch (Exception ex) when (ex.Message.Contains("400"))
+            {
+                return BadRequest(new { error = "Les informations saisies contiennent des caractères invalides." });
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.NewPassword))
+            await _keycloak.UpdatePasswordAsync(user.KeycloakId, dto.NewPassword);
+
+        user.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "Profil mis à jour avec succès." });
+    }
+
+    [HttpDelete("me")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DeleteMe(CancellationToken cancellationToken)
+    {
+        var user = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (user is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        // Collecter toutes les clés MinIO à supprimer avant de toucher la BDD :
+        // - photos uploadées par l'user (sur n'importe quel incident)
+        // - photos sur les incidents de l'user (uploadées par quelqu'un d'autre, supprimées en cascade)
+        var keysUploadedByUser = await _db.Set<IncidentPhoto>()
+            .Where(p => p.UploadedByUserId == user.Id)
+            .Select(p => p.ObjectKey)
+            .ToListAsync(cancellationToken);
+
+        var keysOnUserIncidents = await _db.Set<IncidentPhoto>()
+            .Where(p => p.Incident.AuthorUserId == user.Id)
+            .Select(p => p.ObjectKey)
+            .ToListAsync(cancellationToken);
+
+        var allKeys = keysUploadedByUser.Union(keysOnUserIncidents).Distinct().ToList();
+
+        foreach (var key in allKeys)
+            await _photoStorage.DeleteAsync(key, cancellationToken);
+
+        // Supprimer d'abord les références Restrict avant la suppression en cascade
+        await _db.Set<IncidentStatusHistory>()
+            .Where(h => h.ChangedByUserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _db.Set<IncidentPhoto>()
+            .Where(p => p.UploadedByUserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        await _db.Set<IncidentMessage>()
+            .Where(m => m.AuthorUserId == user.Id)
+            .ExecuteDeleteAsync(cancellationToken);
+
+        _db.Users.Remove(user);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        await _keycloak.DeleteUserAsync(user.KeycloakId);
+
+        return NoContent();
     }
 }

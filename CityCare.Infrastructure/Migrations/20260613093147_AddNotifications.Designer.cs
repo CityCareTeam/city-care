@@ -3,6 +3,7 @@ using System;
 using CityCare.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CityCare.Infrastructure.Migrations
 {
     [DbContext(typeof(CityCareDbContext))]
-    partial class CityCareDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260613093147_AddNotifications")]
+    partial class AddNotifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -79,10 +82,6 @@ namespace CityCare.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<string>("AuthorName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
                     b.Property<string>("AuthorRole")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
@@ -110,48 +109,6 @@ namespace CityCare.Infrastructure.Migrations
                     b.HasIndex("IncidentId");
 
                     b.ToTable("incident_messages", (string)null);
-                });
-
-            modelBuilder.Entity("CityCare.Core.Entities.IncidentPhoto", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<Guid>("IncidentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ObjectKey")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<long>("SizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<Guid>("UploadedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("IncidentId");
-
-                    b.HasIndex("UploadedByUserId");
-
-                    b.ToTable("incident_photos", (string)null);
                 });
 
             modelBuilder.Entity("CityCare.Core.Entities.IncidentStatusHistory", b =>
@@ -190,31 +147,6 @@ namespace CityCare.Infrastructure.Migrations
                     b.ToTable("incident_status_history", (string)null);
                 });
 
-            modelBuilder.Entity("CityCare.Core.Entities.IncidentVote", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("IncidentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId");
-
-                    b.HasIndex("IncidentId", "UserId")
-                        .IsUnique();
-
-                    b.ToTable("incident_votes", (string)null);
-                });
-
             modelBuilder.Entity("CityCare.Core.Entities.Notification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -237,9 +169,6 @@ namespace CityCare.Infrastructure.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false);
 
-                    b.Property<int?>("MessageCount")
-                        .HasColumnType("integer");
-
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -257,8 +186,6 @@ namespace CityCare.Infrastructure.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("IncidentId");
-
                     b.HasIndex("UserId");
 
                     b.HasIndex("UserId", "IsRead");
@@ -275,22 +202,10 @@ namespace CityCare.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("DevicePushToken")
-                        .HasMaxLength(512)
-                        .HasColumnType("character varying(512)");
-
-                    b.Property<string>("DisplayName")
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
                     b.Property<string>("KeycloakId")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
-
-                    b.Property<string>("MainRole")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -323,22 +238,7 @@ namespace CityCare.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasDefaultValue("");
 
-                    b.Property<bool>("InAppIncidentsEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true);
-
-                    b.Property<bool>("InAppMessagesEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true);
-
                     b.Property<bool>("PushEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(true);
-
-                    b.Property<bool>("PushMessagesEnabled")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(true);
@@ -383,25 +283,6 @@ namespace CityCare.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("CityCare.Core.Entities.IncidentPhoto", b =>
-                {
-                    b.HasOne("CityCare.Core.Entities.Incident", "Incident")
-                        .WithMany()
-                        .HasForeignKey("IncidentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CityCare.Core.Entities.User", "UploadedByUser")
-                        .WithMany()
-                        .HasForeignKey("UploadedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Incident");
-
-                    b.Navigation("UploadedByUser");
-                });
-
             modelBuilder.Entity("CityCare.Core.Entities.IncidentStatusHistory", b =>
                 {
                     b.HasOne("CityCare.Core.Entities.User", "ChangedByUser")
@@ -421,32 +302,8 @@ namespace CityCare.Infrastructure.Migrations
                     b.Navigation("Incident");
                 });
 
-            modelBuilder.Entity("CityCare.Core.Entities.IncidentVote", b =>
-                {
-                    b.HasOne("CityCare.Core.Entities.Incident", "Incident")
-                        .WithMany()
-                        .HasForeignKey("IncidentId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("CityCare.Core.Entities.User", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Incident");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("CityCare.Core.Entities.Notification", b =>
                 {
-                    b.HasOne("CityCare.Core.Entities.Incident", null)
-                        .WithMany()
-                        .HasForeignKey("IncidentId")
-                        .OnDelete(DeleteBehavior.Cascade);
-
                     b.HasOne("CityCare.Core.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")

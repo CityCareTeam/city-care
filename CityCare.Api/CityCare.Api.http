@@ -46,3 +46,27 @@ Authorization: Bearer {{token}}
 GET {{host}}/incidents/{{incidentId}}/preview
 Accept: application/json
 Authorization: Bearer {{token}}
+
+### Historique des changements de statut
+GET {{host}}/incidents/{{incidentId}}/status-history
+Accept: application/json
+
+### Lister les photos d'un incident
+GET {{host}}/incidents/{{incidentId}}/photos
+Accept: application/json
+
+### Upload d'une photo (multipart/form-data)
+POST {{host}}/incidents/{{incidentId}}/photos
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----CityCareBoundary
+
+------CityCareBoundary
+Content-Disposition: form-data; name="file"; filename="photo.jpg"
+Content-Type: image/jpeg
+
+< ./photo.jpg
+------CityCareBoundary--
+
+### Supprimer une photo (auteur ou agent/admin)
+DELETE {{host}}/incidents/{{incidentId}}/photos/{{photoId}}
+Authorization: Bearer {{token}}

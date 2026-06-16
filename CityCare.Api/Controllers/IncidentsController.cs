@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using CityCare.Api.Dtos.Incidents;
 using CityCare.Api.Models.DTOs;
 using CityCare.Api.Services;
@@ -19,18 +20,38 @@ public sealed class IncidentsController : ControllerBase
     private readonly IncidentService _incidentService;
     private readonly CurrentUserService _currentUser;
     private readonly GeocodeService _geocodeService;
+    private readonly NotificationService _notificationService;
+    private readonly ExpoPushService _expoPush;
+    private readonly ILogger<IncidentsController> _logger;
+    private readonly PhotoStorageService _photoStorage;
 
     public IncidentsController(
         CityCareDbContext db,
         IncidentService incidentService,
         CurrentUserService currentUser,
-        GeocodeService geocodeService)
+        GeocodeService geocodeService,
+        NotificationService notificationService,
+        ExpoPushService expoPush,
+        ILogger<IncidentsController> logger,
+        PhotoStorageService photoStorage)
     {
         _db = db;
         _incidentService = incidentService;
         _currentUser = currentUser;
         _geocodeService = geocodeService;
+        _notificationService = notificationService;
+        _expoPush = expoPush;
+        _logger = logger;
+        _photoStorage = photoStorage;
     }
+
+    private static readonly Dictionary<string, string> AllowedImageTypes = new()
+    {
+        [".jpg"]  = "image/jpeg",
+        [".jpeg"] = "image/jpeg",
+        [".png"]  = "image/png",
+        [".webp"] = "image/webp"
+    };
 
     // ─────────────────────────────────────────────────────────────
     // POST /incidents — Créer un signalement
@@ -89,6 +110,55 @@ public sealed class IncidentsController : ControllerBase
                 : null
         };
 
+        // Notif in-app : tout le monde sauf le créateur, avec InAppIncidentsEnabled.
+        var allUserIds = await (
+            from u in _db.Users
+            where u.Id != authorUserId
+            join s in _db.UserNotificationSettings on u.Id equals s.UserId into settings
+            from s in settings.DefaultIfEmpty()
+            where s == null || s.InAppIncidentsEnabled
+            select u.Id
+        ).ToListAsync(cancellationToken);
+
+        // Label commun pour in-app et push.
+        var incidentTypeStr = IncidentService.ToSnakeCase(incident.Type);
+        var notifBody = $"{incidentTypeStr} — {incident.AddressLabel} : {incident.Description}";
+
+        if (allUserIds.Count > 0)
+        {
+            await _notificationService.CreateBulkAsync(
+                allUserIds,
+                title:      "Nouveau signalement",
+                body:       notifBody,
+                type:       "new_incident",
+                incidentId: incident.Id,
+                cancellationToken: cancellationToken);
+        }
+
+        // Push à tous les utilisateurs (sauf créateur) avec push activé + type suivi.
+        var pushTokens = await (
+            from u in _db.Users
+            where u.Id != authorUserId && u.DevicePushToken != null
+            join s in _db.UserNotificationSettings on u.Id equals s.UserId into settings
+            from s in settings.DefaultIfEmpty()
+            where s == null || (s.PushEnabled && (s.FollowedTypes == "" || s.FollowedTypes.Contains(incidentTypeStr)))
+            select u.DevicePushToken!
+        ).ToListAsync(cancellationToken);
+
+        if (pushTokens.Count > 0)
+        {
+            _ = _expoPush.SendBatchAsync(
+                pushTokens,
+                title: "Nouveau signalement",
+                body:  notifBody,
+                data:  new { incident_id = incident.Id });
+        }
+
+        _logger.LogInformation(
+            "Incident créé — id={IncidentId}, type={Type}, adresse={Address}, inApp={InAppCount}, push={PushCount}",
+            incident.Id, IncidentService.ToSnakeCase(incident.Type), incident.AddressLabel,
+            allUserIds.Count, pushTokens.Count);
+
         return CreatedAtAction(nameof(GetById), new { id = incident.Id }, response);
     }
 
@@ -108,6 +178,8 @@ public sealed class IncidentsController : ControllerBase
         [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogDebug("GET /incidents — status={Status}, type={Type}, page={Page}", status, type, page);
+
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 100) pageSize = 20;
 
@@ -237,6 +309,52 @@ public sealed class IncidentsController : ControllerBase
     }
 
     // ─────────────────────────────────────────────────────────────
+    // GET /incidents/{id}/status-history — Historique des changements de statut
+    // ─────────────────────────────────────────────────────────────
+    [HttpGet("{id:guid}/status-history")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetStatusHistory(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var historyRows = await _db.IncidentStatusHistories
+            .AsNoTracking()
+            .Where(h => h.IncidentId == id)
+            .OrderBy(h => h.ChangedAt)
+            .Select(h => new
+            {
+                h.Id,
+                h.OldStatus,
+                h.NewStatus,
+                h.ChangedByUserId,
+                ChangedByKeycloakId = h.ChangedByUser.KeycloakId,
+                h.Comment,
+                h.ChangedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var history = historyRows.Select(h => new StatusHistoryResponse
+        {
+            Id                  = h.Id,
+            OldStatus           = IncidentService.ToSnakeCase(h.OldStatus),
+            NewStatus           = IncidentService.ToSnakeCase(h.NewStatus),
+            ChangedByUserId     = h.ChangedByUserId,
+            ChangedByKeycloakId = h.ChangedByKeycloakId,
+            Comment             = h.Comment,
+            ChangedAt           = new DateTimeOffset(
+                DateTime.SpecifyKind(h.ChangedAt, DateTimeKind.Utc))
+                .ToOffset(TimeSpan.FromHours(2))
+        }).ToList();
+
+        return Ok(new { data = history });
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // PATCH /incidents/{id}/status — Changer le statut (agent/admin)
     // ─────────────────────────────────────────────────────────────
     [HttpPatch("{id:guid}/status")]
@@ -285,6 +403,50 @@ public sealed class IncidentsController : ControllerBase
 
         await _db.SaveChangesAsync(cancellationToken);
 
+        // Notifier l'auteur du changement de statut (in-app) si préférence activée.
+        var statusLabel = IncidentService.ToSnakeCase(nextStatus) switch
+        {
+            "in_progress" => "en cours de traitement",
+            "resolved"    => "résolu",
+            _             => IncidentService.ToSnakeCase(nextStatus)
+        };
+
+        var authorPrefs = await _db.UserNotificationSettings
+            .AsNoTracking()
+            .Where(s => s.UserId == incident.AuthorUserId)
+            .Select(s => new { s.InAppIncidentsEnabled, s.PushEnabled })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (authorPrefs?.InAppIncidentsEnabled ?? true)
+            await _notificationService.CreateAsync(
+                userId:     incident.AuthorUserId,
+                title:      "Mise à jour de votre signalement",
+                body:       $"Votre signalement est maintenant {statusLabel}.",
+                type:       "incident_status_changed",
+                incidentId: incident.Id,
+                cancellationToken: cancellationToken);
+
+        // Push au citoyen auteur si push activé et token disponible.
+        if (authorPrefs?.PushEnabled ?? true)
+        {
+            var authorToken = await _db.Users
+                .AsNoTracking()
+                .Where(u => u.Id == incident.AuthorUserId)
+                .Select(u => u.DevicePushToken)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(authorToken))
+                _ = _expoPush.SendAsync(
+                    authorToken,
+                    title: "Mise à jour de votre signalement",
+                    body:  $"Votre signalement est maintenant {statusLabel}.",
+                    data:  new { incident_id = incident.Id });
+        }
+
+        _logger.LogInformation(
+            "Statut incident mis à jour — id={IncidentId}, {OldStatus} → {NewStatus}, par={ActorId}",
+            incident.Id, IncidentService.ToSnakeCase(currentStatus), IncidentService.ToSnakeCase(nextStatus), changedByUserId);
+
         return Ok(new
         {
             id         = incident.Id,
@@ -292,6 +454,244 @@ public sealed class IncidentsController : ControllerBase
             updated_at = new DateTimeOffset(DateTime.SpecifyKind(incident.UpdatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
         });
     }
+
+    // ─────────────────────────────────────────────────────────────
+    // GET /incidents/{id}/photos — Lister les photos d'un incident
+    // ─────────────────────────────────────────────────────────────
+    [HttpGet("{id:guid}/photos")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetPhotos(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var photos = await _db.IncidentPhotos
+            .AsNoTracking()
+            .Where(p => p.IncidentId == id)
+            .OrderBy(p => p.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var data = photos.Select(ToPhotoResponse).ToList();
+
+        return Ok(new { data });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // POST /incidents/{id}/photos — Upload d'une photo (multipart/form-data)
+    // ─────────────────────────────────────────────────────────────
+    [HttpPost("{id:guid}/photos")]
+    [Authorize]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> UploadPhoto(
+        Guid id,
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        var incident = await _db.Incidents
+            .FirstOrDefaultAsync(i => i.Id == id, cancellationToken);
+
+        if (incident is null)
+            return NotFound();
+
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var isAuthor = incident.AuthorUserId == actor.Id;
+        var isAgentOrAdmin = User.IsInRole("agent") || User.IsInRole("admin");
+        if (!isAuthor && !isAgentOrAdmin)
+            return Forbid();
+
+        if (file is null || file.Length == 0)
+            return BadRequest(new { error = "Aucun fichier fourni." });
+
+        if (file.Length > _photoStorage.MaxFileSizeBytes)
+            return UnprocessableEntity(new { error = $"Fichier trop volumineux (max {_photoStorage.MaxFileSizeBytes / (1024 * 1024)} Mo)." });
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!AllowedImageTypes.TryGetValue(ext, out var expectedContentType))
+            return UnprocessableEntity(new { error = $"Extension non autorisée. Autorisées: {string.Join(", ", AllowedImageTypes.Keys)}." });
+
+        var objectKey = $"incidents/{id}/{Guid.NewGuid()}{ext}";
+        var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? expectedContentType : file.ContentType;
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await _photoStorage.UploadAsync(objectKey, stream, file.Length, contentType, cancellationToken);
+        }
+
+        var photo = new IncidentPhoto
+        {
+            Id               = Guid.NewGuid(),
+            IncidentId       = incident.Id,
+            UploadedByUserId = actor.Id,
+            ObjectKey        = objectKey,
+            FileName         = Path.GetFileName(file.FileName),
+            ContentType      = contentType,
+            SizeBytes        = file.Length,
+            CreatedAt        = DateTime.UtcNow
+        };
+
+        _db.IncidentPhotos.Add(photo);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return CreatedAtAction(nameof(GetPhotos), new { id = incident.Id }, ToPhotoResponse(photo));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // DELETE /incidents/{id}/photos/{photoId} — Supprimer une photo
+    //   (auteur de l'incident, agent ou admin)
+    // ─────────────────────────────────────────────────────────────
+    [HttpDelete("{id:guid}/photos/{photoId:guid}")]
+    [Authorize]
+    public async Task<IActionResult> DeletePhoto(Guid id, Guid photoId, CancellationToken cancellationToken)
+    {
+        var photo = await _db.IncidentPhotos
+            .Include(p => p.Incident)
+            .FirstOrDefaultAsync(p => p.Id == photoId && p.IncidentId == id, cancellationToken);
+
+        if (photo is null)
+            return NotFound();
+
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var isAuthor = photo.Incident.AuthorUserId == actor.Id;
+        var isAgentOrAdmin = User.IsInRole("agent") || User.IsInRole("admin");
+        if (!isAuthor && !isAgentOrAdmin)
+            return Forbid();
+
+        await _photoStorage.DeleteAsync(photo.ObjectKey, cancellationToken);
+
+        _db.IncidentPhotos.Remove(photo);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // GET /incidents/{id}/votes — Compteur de votes + si l'utilisateur a voté
+    // ─────────────────────────────────────────────────────────────
+    [HttpGet("{id:guid}/votes")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetVotes(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var voteCount = await _db.IncidentVotes
+            .AsNoTracking()
+            .CountAsync(v => v.IncidentId == id, cancellationToken);
+
+        var hasVoted = false;
+        var sub = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                  ?? User.FindFirst("sub")?.Value;
+
+        if (!string.IsNullOrWhiteSpace(sub))
+        {
+            hasVoted = await _db.IncidentVotes
+                .AsNoTracking()
+                .AnyAsync(v => v.IncidentId == id && v.User.KeycloakId == sub, cancellationToken);
+        }
+
+        return Ok(new VoteResponse
+        {
+            IncidentId = id,
+            VoteCount  = voteCount,
+            HasVoted   = hasVoted
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // POST /incidents/{id}/votes — Voter (un seul vote par incident)
+    // ─────────────────────────────────────────────────────────────
+    [HttpPost("{id:guid}/votes")]
+    [Authorize]
+    public async Task<IActionResult> AddVote(Guid id, CancellationToken cancellationToken)
+    {
+        var incidentExists = await _db.Incidents
+            .AsNoTracking()
+            .AnyAsync(i => i.Id == id, cancellationToken);
+
+        if (!incidentExists)
+            return NotFound();
+
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var alreadyVoted = await _db.IncidentVotes
+            .AnyAsync(v => v.IncidentId == id && v.UserId == actor.Id, cancellationToken);
+
+        if (alreadyVoted)
+            return Conflict(new { error = "Vous avez déjà voté pour ce signalement." });
+
+        _db.IncidentVotes.Add(new IncidentVote
+        {
+            Id         = Guid.NewGuid(),
+            IncidentId = id,
+            UserId     = actor.Id,
+            CreatedAt  = DateTime.UtcNow
+        });
+
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var voteCount = await _db.IncidentVotes
+            .CountAsync(v => v.IncidentId == id, cancellationToken);
+
+        var response = new VoteResponse
+        {
+            IncidentId = id,
+            VoteCount  = voteCount,
+            HasVoted   = true
+        };
+
+        return CreatedAtAction(nameof(GetVotes), new { id }, response);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // DELETE /incidents/{id}/votes/me — Retirer son vote
+    // ─────────────────────────────────────────────────────────────
+    [HttpDelete("{id:guid}/votes/me")]
+    [Authorize]
+    public async Task<IActionResult> RemoveVote(Guid id, CancellationToken cancellationToken)
+    {
+        var actor = await _currentUser.GetOrCreateFromPrincipalAsync(User, cancellationToken);
+        if (actor is null)
+            return Unauthorized(new { error = "Missing or invalid Keycloak subject (sub)." });
+
+        var vote = await _db.IncidentVotes
+            .FirstOrDefaultAsync(v => v.IncidentId == id && v.UserId == actor.Id, cancellationToken);
+
+        if (vote is null)
+            return NotFound();
+
+        _db.IncidentVotes.Remove(vote);
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return NoContent();
+    }
+
+    private PhotoResponse ToPhotoResponse(IncidentPhoto p) => new()
+    {
+        Id               = p.Id,
+        IncidentId       = p.IncidentId,
+        Url              = _photoStorage.BuildPublicUrl(p.ObjectKey),
+        FileName         = p.FileName,
+        ContentType      = p.ContentType,
+        SizeBytes        = p.SizeBytes,
+        UploadedByUserId = p.UploadedByUserId,
+        CreatedAt        = new DateTimeOffset(DateTime.SpecifyKind(p.CreatedAt, DateTimeKind.Utc)).ToOffset(TimeSpan.FromHours(2))
+    };
 
     // ─────────────────────────────────────────────────────────────
     // DELETE /incidents/{id} — Supprimer un incident (admin)
@@ -308,6 +708,8 @@ public sealed class IncidentsController : ControllerBase
 
         _db.Incidents.Remove(incident);
         await _db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogWarning("Incident supprimé — id={IncidentId}, adresse={Address}", id, incident.AddressLabel);
 
         return NoContent();
     }
