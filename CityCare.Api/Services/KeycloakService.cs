@@ -1,8 +1,10 @@
 ﻿using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using CityCare.Api.Dtos.Admin;
 
 namespace CityCare.Api.Services;
+
 
 public class KeycloakService
 {
@@ -198,6 +200,91 @@ public class KeycloakService
         _logger.LogInformation("Rôle '{Role}' assigné à l'utilisateur Keycloak {KeycloakId}", roleName, keycloakId);
     }
 
+    public async Task<List<KeycloakUserDto>> GetUsersAsync(int first = 0, int max = 100, string? search = null)
+    {
+        var adminToken = await GetAdminTokenAsync();
+        var realm = _configuration["Keycloak:Realm"];
+        var keycloakUrl = _configuration["Keycloak:Url"];
+
+        var url = $"{keycloakUrl}/admin/realms/{realm}/users?first={first}&max={max}";
+        if (!string.IsNullOrWhiteSpace(search))
+            url += $"&search={Uri.EscapeDataString(search)}";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var response = await _httpClient.SendAsync(request);
+        var content = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"Erreur récupération utilisateurs Keycloak: {(int)response.StatusCode} - {content}");
+
+        using var doc = JsonDocument.Parse(content);
+        var result = new List<KeycloakUserDto>();
+
+        foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            var id = element.GetProperty("id").GetString()!;
+            var username = element.TryGetProperty("username", out var u) ? u.GetString() : null;
+            var email = element.TryGetProperty("email", out var em) ? em.GetString() : null;
+            var firstName = element.TryGetProperty("firstName", out var fn) ? fn.GetString() : null;
+            var lastName = element.TryGetProperty("lastName", out var ln) ? ln.GetString() : null;
+            var enabled = element.TryGetProperty("enabled", out var en) && en.GetBoolean();
+
+            var roles = await GetUserRealmRolesAsync(id, adminToken);
+            var appRole = roles.FirstOrDefault(r => new[] { "citizen", "agent", "admin" }.Contains(r.ToLowerInvariant()))
+                           ?? "citizen";
+
+            result.Add(new KeycloakUserDto(id, username, email, firstName, lastName, enabled, appRole.ToLowerInvariant()));
+        }
+
+        return result;
+    }
+
+    private async Task<List<string>> GetUserRealmRolesAsync(string keycloakId, string adminToken)
+    {
+        var realm = _configuration["Keycloak:Realm"];
+        var keycloakUrl = _configuration["Keycloak:Url"];
+        var url = $"{keycloakUrl}/admin/realms/{realm}/users/{keycloakId}/role-mappings/realm";
+
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var response = await _httpClient.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+            return new List<string>();
+
+        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return doc.RootElement.EnumerateArray()
+            .Select(r => r.GetProperty("name").GetString() ?? "")
+            .Where(n => !string.IsNullOrEmpty(n))
+            .ToList();
+    }
+
+    public async Task SetUserEnabledAsync(string keycloakId, bool enabled)
+    {
+        var adminToken = await GetAdminTokenAsync();
+        var realm = _configuration["Keycloak:Realm"];
+        var keycloakUrl = _configuration["Keycloak:Url"];
+        var url = $"{keycloakUrl}/admin/realms/{realm}/users/{keycloakId}";
+
+        var payload = new { enabled };
+        var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminToken);
+
+        var response = await _httpClient.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var content = await response.Content.ReadAsStringAsync();
+            throw new Exception($"Erreur mise à jour statut utilisateur Keycloak: {(int)response.StatusCode} - {content}");
+        }
+
+        _logger.LogInformation("Utilisateur Keycloak {KeycloakId} {Status}", SanitizeForLog(keycloakId), enabled ? "activé" : "désactivé");
+    }
+
     public async Task DeleteUserAsync(string keycloakId)
     {
         var adminToken = await GetAdminTokenAsync();
@@ -215,7 +302,14 @@ public class KeycloakService
             throw new Exception($"Erreur suppression utilisateur Keycloak: {(int)response.StatusCode} - {content}");
         }
 
-        _logger.LogInformation("Utilisateur Keycloak {KeycloakId} supprimé", keycloakId);
+        _logger.LogInformation("Utilisateur Keycloak {KeycloakId} supprimé", SanitizeForLog(keycloakId));
+    }
+
+    private static string SanitizeForLog(string value)
+    {
+        return string.IsNullOrEmpty(value)
+            ? string.Empty
+            : value.Replace("\r", string.Empty).Replace("\n", string.Empty);
     }
 
     private async Task<string> GetAdminTokenAsync()
