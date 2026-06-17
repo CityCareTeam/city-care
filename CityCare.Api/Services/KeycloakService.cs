@@ -282,7 +282,7 @@ public class KeycloakService
             throw new Exception($"Erreur mise à jour statut utilisateur Keycloak: {(int)response.StatusCode} - {content}");
         }
 
-        _logger.LogInformation("Utilisateur Keycloak {KeycloakId} {Status}", keycloakId, enabled ? "activé" : "désactivé");
+        _logger.LogInformation("Utilisateur Keycloak {KeycloakId} {Status}", SanitizeForLog(keycloakId), enabled ? "activé" : "désactivé");
     }
 
     public async Task DeleteUserAsync(string keycloakId)
@@ -302,7 +302,14 @@ public class KeycloakService
             throw new Exception($"Erreur suppression utilisateur Keycloak: {(int)response.StatusCode} - {content}");
         }
 
-        _logger.LogInformation("Utilisateur Keycloak {KeycloakId} supprimé", keycloakId);
+        _logger.LogInformation("Utilisateur Keycloak {KeycloakId} supprimé", SanitizeForLog(keycloakId));
+    }
+
+    private static string SanitizeForLog(string value)
+    {
+        return string.IsNullOrEmpty(value)
+            ? string.Empty
+            : value.Replace("\r", string.Empty).Replace("\n", string.Empty);
     }
 
     private async Task<string> GetAdminTokenAsync()
